@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Togenar Embed Demo</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        background: #0b1220;
+        color: #e5e7eb;
+      }
+      .grid {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: 1fr;
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+      h1 { margin: 0 0 10px; font-size: 20px; }
+      .card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 14px;
+        padding: 14px;
+      }
+      code { background: rgba(0,0,0,0.25); padding: 2px 6px; border-radius: 6px; }
+      label { display: inline-block; width: 120px; opacity: 0.85; }
+      input, select {
+        width: min(520px, 100%);
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(0,0,0,0.25);
+        color: #e5e7eb;
+        outline: none;
+      }
+      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+      button {
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.06);
+        color: #e5e7eb;
+        cursor: pointer;
+      }
+      .events {
+        display: grid;
+        gap: 10px;
+      }
+      .events-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .events-log {
+        min-height: 180px;
+        max-height: 320px;
+        overflow: auto;
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(0,0,0,0.22);
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        white-space: pre-wrap;
+      }
+      .event-entry {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+      }
+      .event-entry:last-child {
+        border-bottom: 0;
+      }
+      .event-name {
+        color: #93c5fd;
+        font-weight: 600;
+      }
+      .event-time {
+        color: rgba(229,231,235,0.6);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid">
+      <div class="card">
+        <h1>Embed Demo</h1>
+        <div>Loads the public viewer inside a <code>&lt;togenar-embed&gt;</code> web component.</div>
+        <div class="row">
+          <label for="project">Project</label>
+          <input id="project" value="01ke6f7wxf30qay99dw1b71tnv" />
+        </div>
+        <div class="row">
+          <label for="mode">Mode</label>
+          <select id="mode">
+            <option value="viewer">viewer</option>
+            <option value="launcher">launcher</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="base">Base URL</label>
+          <input id="base" value="https://model.togenar.com" />
+        </div>
+        <div class="row">
+          <label for="configurator">Configurator</label>
+          <input id="configurator" type="checkbox" />
+        </div>
+        <div class="row">
+          <label for="headless">Picker off (headless)</label>
+          <input id="headless" type="checkbox" />
+        </div>
+        <div class="row">
+          <button id="apply">Apply</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <togenar-embed id="embed" project="01ke6f7wxf30qay99dw1b71tnv" mode="viewer" aspect="16/9"></togenar-embed>
+      </div>
+
+      <div class="card">
+        <h1>Bring your own panel (Tier 3 + headless Tier 4)</h1>
+        <div>
+          Enable <b>Configurator</b> + <b>Picker off (headless)</b> above, then drive the 3D from
+          these buttons via the Host SDK. Keys are the URL handles (the value after <code>?part=…</code>),
+          e.g. part <code>body</code>, variant <code>walnut</code>.
+        </div>
+        <div class="row">
+          <label for="part-key">Part</label>
+          <input id="part-key" placeholder="body" />
+        </div>
+        <div class="row">
+          <label for="variant-key">Variant</label>
+          <input id="variant-key" placeholder="walnut" />
+        </div>
+        <div class="row">
+          <button id="cmd-options" type="button">getOptions()</button>
+          <button id="cmd-select" type="button">select()</button>
+          <button id="cmd-reset" type="button">reset()</button>
+          <button id="cmd-get" type="button">getSelection()</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h1>Add to cart (store glue)</h1>
+        <div>
+          Exactly what a real product page does: enable the button once the shopper has a
+          complete configuration, then on click read <code>getSkus()</code> + <code>getShareUrl()</code>
+          and hand the payload to your store. Here we just log the payload a real
+          <code>/cart/add</code> would POST. <b>Enable Configurator above</b> and pick options to arm it.
+        </div>
+        <div class="row">
+          <button id="add-to-cart" type="button" disabled>Add to cart</button>
+          <button id="view-ar" type="button">View in your room (AR)</button>
+        </div>
+      </div>
+
+      <div class="card events">
+        <div class="events-header">
+          <h1>Embed Events</h1>
+          <button id="clear-events" type="button">Clear Log</button>
+        </div>
+        <div>Use this panel while opening annotations in the embed to verify event parity.</div>
+        <div id="events-log" class="events-log">Waiting for events...</div>
+      </div>
+    </div>
+
+    <script type="module">
+      import './togenar-embed.js';
+
+      const project = document.getElementById('project');
+      const mode = document.getElementById('mode');
+      const base = document.getElementById('base');
+      const apply = document.getElementById('apply');
+      const embed = document.getElementById('embed');
+      const clearEvents = document.getElementById('clear-events');
+      const eventsLog = document.getElementById('events-log');
+
+      const trackedEvents = [
+        'togenar:load',
+        'togenar:ready',
+        'togenar:hotspot:open',
+        'togenar:hotspot:close',
+        'togenar:hotspot:cta',
+        'togenar:commerce:cta_view',
+        'togenar:commerce:cta_click',
+        'togenar:configurator:selection_change'
+      ];
+
+      const appendEvent = (name, detail) => {
+        if (!eventsLog) return;
+        if (eventsLog.textContent === 'Waiting for events...') {
+          eventsLog.textContent = '';
+        }
+
+        const row = document.createElement('div');
+        row.className = 'event-entry';
+
+        const stamp = new Date().toLocaleTimeString();
+        const pretty = (() => {
+          try {
+            return JSON.stringify(detail || {}, null, 2);
+          } catch {
+            return String(detail || '');
+          }
+        })();
+
+        row.innerHTML = `<span class="event-name">${name}</span> <span class="event-time">${stamp}</span>\n${pretty}`;
+        eventsLog.prepend(row);
+      };
+
+      const configurator = document.getElementById('configurator');
+      const headless = document.getElementById('headless');
+      const partKey = document.getElementById('part-key');
+      const variantKey = document.getElementById('variant-key');
+
+      apply.addEventListener('click', () => {
+        embed.setAttribute('project', project.value.trim());
+        embed.setAttribute('mode', mode.value);
+        embed.setAttribute('base-url', base.value.trim());
+        // Opt into the configurator + (optionally) hide the built-in picker so these buttons are the only UI.
+        if (configurator.checked) embed.setAttribute('configurator', '1');
+        else embed.removeAttribute('configurator');
+        if (headless.checked) embed.setAttribute('picker', 'off');
+        else embed.removeAttribute('picker');
+      });
+
+      // Host SDK (Tier 3): drive the 3D from the page's own controls. select() resolves URL handles
+      // → ids with the same logic as the deep-link reader, so it agrees with shared links.
+      // getOptions() is async: it round-trips to the viewer and returns every part + all variants
+      // with select()-ready handles, so this page could build its own swatch panel data-driven.
+      document.getElementById('cmd-options').addEventListener('click', async () => {
+        try { appendEvent('host:getOptions()', await embed.getOptions()); }
+        catch (e) { appendEvent('host:getOptions() ERROR', { error: String(e) }); }
+      });
+      // select()/reset() are async: they resolve with { ok, selection } AFTER the model swap settles.
+      document.getElementById('cmd-select').addEventListener('click', async () => {
+        try { appendEvent('host:select()', await embed.select(partKey.value.trim(), variantKey.value.trim())); }
+        catch (e) { appendEvent('host:select() ERROR', { error: String(e) }); }
+      });
+      document.getElementById('cmd-reset').addEventListener('click', async () => {
+        try { appendEvent('host:reset()', await embed.reset()); }
+        catch (e) { appendEvent('host:reset() ERROR', { error: String(e) }); }
+      });
+      document.getElementById('cmd-get').addEventListener('click', () => {
+        appendEvent('host:getSelection()', embed.getSelection());
+      });
+
+      // Store glue: the exact flow a product page uses. Arm the button on selection_change,
+      // then on click read the SKUs + share link and hand them to your cart (mocked here as a log).
+      const addToCart = document.getElementById('add-to-cart');
+      const viewAr = document.getElementById('view-ar');
+      embed.addEventListener('togenar:configurator:selection_change', (e) => {
+        // Arm the button only when the config yields mappable SKUs — a store maps by SKU, never by
+        // the internal variantId (README §4). No SKU ⇒ nothing to add ⇒ button stays disabled.
+        const skus = (e.detail?.parts || []).map((p) => p.sku).filter(Boolean);
+        addToCart.disabled = skus.length === 0;
+      });
+      addToCart.addEventListener('click', () => {
+        // Replace this log with your real cart call, e.g. fetch('/cart/add.js', …) on Shopify.
+        // A real store maps by SKU, not the internal variantId, so parts with no SKU are DROPPED
+        // (never shipped with a garbage id). The warning surfaces exactly what fell out.
+        const sel = embed.getSelection() || {};
+        const parts = sel.parts || [];
+        const sellable = parts.filter((p) => p.sku);
+        const payload = {
+          items: sellable.map((p) => ({ id: p.sku, sku: p.sku, label: p.label, quantity: 1 })),
+          configuration_url: sel.shareUrl || embed.getShareUrl(),
+        };
+        if (sellable.length < parts.length) {
+          const missing = parts.filter((p) => !p.sku).map((p) => p.partLabel || p.label);
+          payload._warning = `${parts.length - sellable.length} part(s) have no SKU and were DROPPED (a store maps by SKU, not the internal variantId): ${missing.join(', ')}. Assign a SKU per variant in the configurator editor.`;
+        }
+        appendEvent('store:POST /cart/add', payload);
+      });
+      viewAr.addEventListener('click', async () => {
+        try { appendEvent('host:enterAR()', await embed.enterAR()); }
+        catch (err) { appendEvent('host:enterAR() ERROR', { error: String(err) }); }
+      });
+
+      clearEvents.addEventListener('click', () => {
+        eventsLog.textContent = 'Waiting for events...';
+      });
+
+      trackedEvents.forEach((eventName) => {
+        embed.addEventListener(eventName, (event) => {
+          appendEvent(eventName, event.detail || {});
+        });
+      });
+    </script>
+  </body>
+</html>

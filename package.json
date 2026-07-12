@@ -1,0 +1,56 @@
+{
+  "name": "@togenar/embed",
+  "version": "1.0.0",
+  "description": "The <togenar-embed> web component: drop a live 3D product configurator and native AR into your own storefront, and drive it from your cart.",
+  "keywords": [
+    "3d",
+    "configurator",
+    "product-configurator",
+    "ar",
+    "webxr",
+    "augmented-reality",
+    "web-component",
+    "custom-element",
+    "ecommerce",
+    "shopify",
+    "woocommerce",
+    "togenar"
+  ],
+  "license": "MIT",
+  "author": "Togenar",
+  "homepage": "https://docs.togenar.com/embed/quick-start/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Togenar/togenar-embed.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Togenar/togenar-embed/issues"
+  },
+  "type": "module",
+  "main": "./togenar-embed.js",
+  "module": "./togenar-embed.js",
+  "types": "./togenar-embed.d.ts",
+  "unpkg": "./togenar-embed.js",
+  "jsdelivr": "./togenar-embed.js",
+  "exports": {
+    ".": {
+      "types": "./togenar-embed.d.ts",
+      "default": "./togenar-embed.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "//sideEffects": "Importing this module REGISTERS the <togenar-embed> custom element. Marking it side-effect-free would let bundlers tree-shake the registration away and the tag would silently never upgrade.",
+  "sideEffects": true,
+  "files": [
+    "togenar-embed.js",
+    "togenar-embed.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
