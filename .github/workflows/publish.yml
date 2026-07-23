@@ -1,0 +1,68 @@
+name: Publish to npm
+
+# This file does not run here. It is mirrored into the PUBLIC repo
+# github.com/Togenar/togenar-embed by .github/workflows/publish-embed.yml, and runs there.
+# (GitHub only executes workflows under the repository ROOT .github/workflows, so keeping the
+# public repo's workflow at embed/.github/ keeps one source of truth without a second CI job
+# firing in the monorepo.)
+#
+# WHY the publish happens in the public repo instead of the monorepo that owns the source:
+# npm attaches a provenance attestation only to packages published from a PUBLIC repository
+# over OIDC. Without it the tarball is unverifiable — nothing ties @togenar/embed@x.y.z to a
+# commit a customer can read, and supply-chain scanners (Socket, npm audit signatures) mark it
+# down for exactly that. Publishing from here fixes both the attestation and the gitHead: the
+# commit recorded in the package now resolves in the repository the package points at.
+#
+# Auth is npm Trusted Publishing (OIDC) — no NPM_TOKEN, so there is no publish credential to
+# leak or rotate. One-time setup on npmjs.com, package @togenar/embed:
+#   Settings > Trusted Publisher > GitHub Actions
+#     Organization or user: Togenar
+#     Repository:           togenar-embed
+#     Workflow filename:    publish.yml
+#     Environment:          (leave empty)
+
+'on':
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # the OIDC token npm exchanges for publish rights + provenance
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs npm >= 11.5.1; the npm bundled with Node does not qualify.
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Tag must match the version it claims to publish
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${TAG_VERSION}" != "${PKG_VERSION}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_VERSION}"
+            exit 1
+          fi
+          echo "publishing @togenar/embed@${PKG_VERSION}"
+
+      - name: Publish
+        run: npm publish --access public --provenance

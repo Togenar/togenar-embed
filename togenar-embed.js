@@ -502,8 +502,12 @@ class TogenarEmbed extends HTMLElement {
   }
 
   // Low-level post of a request envelope into the iframe (no-op if the frame isn't reachable yet).
+  // Never posts to '*': until the viewer URL is set we do not know who is in the frame, and a
+  // wildcard target would hand the envelope to whatever document happens to be there.
   #send(msg) {
-    try { const win = this.#iframe && this.#iframe.contentWindow; if (win) win.postMessage(msg, this.#expectedOrigin || '*'); } catch { /* frame gone */ }
+    const targetOrigin = this.#expectedOrigin;
+    if (!targetOrigin) return;
+    try { const win = this.#iframe && this.#iframe.contentWindow; if (win) win.postMessage(msg, targetOrigin); } catch { /* frame gone */ }
   }
 
   // Fire-and-forget into the viewer. Not queued and never awaited: the AR paths that use it run
