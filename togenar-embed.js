@@ -42,6 +42,9 @@ const buildViewerUrl = ({
   height,
   sizeHints,
   skipAnalytics,
+  behaviouralConsent,
+  enquire,
+  enquireLabel,
   arHost,
 }) => {
   const base = new URL(baseUrl || DEFAULT_BASE_URL);
@@ -61,6 +64,18 @@ const buildViewerUrl = ({
   if (arHost && !launcher) url.searchParams.set('arhost', '1');
   if (!launcher) url.searchParams.set('embed', '1');
   if (skipAnalytics) url.searchParams.set('na', '1');
+  // Configurator funnel analytics (which options a shopper picks, whether they enquired) profiles the
+  // visitor, so it is OPT-IN and OFF by default. Set `consent="analytics"` only once you have the
+  // visitor's consent — you are the data controller for it.
+  if (behaviouralConsent) url.searchParams.set('consent', '1');
+  // Enquire is the configurator's conversion step and it is YOURS to fulfil: the viewer shows the
+  // button and emits `togenar:configurator:enquire` with the parts, SKUs and share URL; your page
+  // turns that into a quote request or a cart line. Off unless you ask for it — a button with no
+  // listener is a dead end for the shopper.
+  if (enquire) {
+    url.searchParams.set('enquire', '1');
+    if (enquireLabel) url.searchParams.set('enquire_label', enquireLabel);
+  }
 
   // Owner draft preview: a raw query fragment ("pvexp=..&pvsig=..") forwarded verbatim so the
   // owner can preview an UNPUBLISHED project. Never set for public embeds.
@@ -106,6 +121,9 @@ class TogenarEmbed extends HTMLElement {
       'height',
       'size-hints',
       'na',
+      'consent',
+      'enquire',
+      'enquire-label',
       'ar-button',
     ];
   }
@@ -124,6 +142,8 @@ class TogenarEmbed extends HTMLElement {
   #fallbackTimer = null;   // last-resort flush for frames that never post messages
   #arLaunch = null;        // cached { hasAr, iosHref, androidIntent, androidFallback, arSupportEnabled } from the viewer
   #arBtn = null;           // top-level AR button (host document) — the ONLY context iOS Quick Look shows AR mode
+  #arBusyCleanup = null;   // teardown for the AR button's busy state (listeners + failsafe timer)
+  #arAutoLaunchUntil = 0;  // deadline (ms epoch): an `ar-urls` arrival before this auto-launches (prepare-ar flow)
 
   constructor() {
     super();
@@ -193,6 +213,19 @@ class TogenarEmbed extends HTMLElement {
       }
       .ar-btn:hover { background: #111; }
       .ar-btn svg { width: 18px; height: 18px; flex: 0 0 auto; }
+      .ar-btn.busy { pointer-events: none; opacity: 0.85; }
+      .ar-btn.busy svg { display: none; }
+      .ar-btn .ar-spin {
+        display: none;
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255,255,255,0.35);
+        border-top-color: rgba(255,255,255,0.9);
+        border-radius: 999px;
+        animation: spin 800ms linear infinite;
+        flex: 0 0 auto;
+      }
+      .ar-btn.busy .ar-spin { display: inline-block; }
     `;
 
     this.#root = document.createElement('div');
@@ -228,7 +261,7 @@ class TogenarEmbed extends HTMLElement {
     this.#arBtn.className = 'ar-btn';
     this.#arBtn.setAttribute('part', 'ar-button');
     this.#arBtn.style.display = 'none';
-    this.#arBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/></svg><span>AR</span>';
+    this.#arBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/></svg><span class="ar-spin" aria-hidden="true"></span><span>AR</span>';
     this.#arBtn.addEventListener('click', (e) => { try { e.preventDefault(); } catch {} try { this.enterAR(); } catch {} });
 
     this.#root.appendChild(ratio);
@@ -286,6 +319,10 @@ class TogenarEmbed extends HTMLElement {
         if (name === 'ar-urls') {
           this.#arLaunch = record.detail ?? null;
           try { this.#updateArButton(); } catch {}
+          // A tap arrived before the launch URL did (prepare-ar flow): the viewer has now finished
+          // preparing and re-streamed — finish that tap's launch instead of making the shopper guess
+          // that a second tap is needed.
+          try { this.#maybeAutoLaunchAr(); } catch {}
         }
 
         this.dispatchEvent(new CustomEvent(`togenar:${name}`.replace('::', ':'), {
@@ -306,6 +343,7 @@ class TogenarEmbed extends HTMLElement {
 
   disconnectedCallback() {
     try { window.removeEventListener('message', this.#onMessage); } catch {}
+    try { this.#clearArBusy(); } catch {}
     // Fail any in-flight requests so callers don't hang on a removed embed.
     try { for (const [, entry] of this.#pending) { clearTimeout(entry.timer); entry.reject(new Error('togenar: embed disconnected')); } } catch {}
     this.#pending.clear();
@@ -377,6 +415,17 @@ class TogenarEmbed extends HTMLElement {
 
     const sizeHints = boolAttr(this.getAttribute('size-hints'));
     const skipAnalytics = boolAttr(this.getAttribute('na'));
+    // `consent="analytics"` (or a bare `consent`) asserts the visitor consented to behavioural
+    // tracking. Anything else — including the attribute being absent — means no consent.
+    const enquire = boolAttr(this.getAttribute('enquire'));
+    const enquireLabel = pick(this.getAttribute('enquire-label'));
+
+    const behaviouralConsent = (() => {
+      const raw = this.getAttribute('consent');
+      if (raw === null) return false;
+      const value = String(raw).trim().toLowerCase();
+      return value === '' || value === 'analytics' || value === 'true' || value === '1' || value === 'granted';
+    })();
 
     if (!project) {
       this.#status.style.display = 'none';
@@ -397,6 +446,9 @@ class TogenarEmbed extends HTMLElement {
       height: this.clientHeight || null,
       sizeHints,
       skipAnalytics,
+      behaviouralConsent,
+      enquire,
+      enquireLabel,
       // Inline viewer/configurator embeds: the SDK owns native AR from the top level.
       arHost: !launcher,
     });
@@ -452,6 +504,22 @@ class TogenarEmbed extends HTMLElement {
   // Low-level post of a request envelope into the iframe (no-op if the frame isn't reachable yet).
   #send(msg) {
     try { const win = this.#iframe && this.#iframe.contentWindow; if (win) win.postMessage(msg, this.#expectedOrigin || '*'); } catch { /* frame gone */ }
+  }
+
+  // Fire-and-forget into the viewer. Not queued and never awaited: the AR paths that use it run
+  // inside a user gesture that is about to be spent on a native launch, and awaiting an ack would
+  // spend it. The bridge is already proven by then — the AR URLs it launches from arrived over it.
+  #command(command, args = {}) {
+    this.#send({ __togenar: 1, type: 'command', command, args: args || {} });
+  }
+
+  // The shopper's one measurable AR action, from either surface: Apple's in-AR banner (iOS) or the
+  // return sheet the viewer draws after Scene Viewer (Android). Dispatched SYNCHRONOUSLY — Apple
+  // hands us the tap with an unspent user activation, and that activation is the only reason a host
+  // can open Apple Pay from this handler. An await here would throw it away.
+  #emitArCtaTap(detail) {
+    this.dispatchEvent(new CustomEvent('togenar:ar-add-to-cart', { bubbles: true, detail }));
+    this.#command('ar-add-to-cart', detail);   // viewer owns the telemetry auth, so it records the tap
   }
 
   // Send a correlated request and return a Promise that resolves with the viewer's result (or rejects
@@ -552,24 +620,176 @@ class TogenarEmbed extends HTMLElement {
   }
 
   /**
+   * Tell us your cart call succeeded. Call it from your own "Add to cart" handler, right after your
+   * store confirms the add — one line, and it is what makes AR measurable on Android.
+   *
+   * Android gives us no way to put a button inside AR and no callback when the shopper leaves it, so
+   * we do not draw one on top of yours: your button is already there, usually pinned to the bottom of
+   * the phone. Instead, an add that lands shortly after the shopper walks out of AR is credited to
+   * that AR session. Without this call, that sale looks like it came from nowhere.
+   *
+   * Fire-and-forget; safe to call on every add, AR or not.
+   */
+  addedToCart(detail = {}) {
+    this.#command('added-to-cart', detail || {});
+  }
+
+  // Shared UA sniff for the launch paths (iPadOS masquerades as Macintosh, hence the touch probe).
+  // `iosSafariAnchor`: real Safari / SFSafariViewController — the only context honouring rel="ar".
+  // A Safari-shaped UA is NOT proof: Telegram's WKWebView (device-verified) carries Safari's FULL
+  // UA — Version/ + Safari/, no app token. navigator.standalone is the discriminator WebKit itself
+  // provides: defined (true/false) only in the Safari family; embedded webviews leave it undefined.
+  // `iosNamedBrowser`: Chrome/Firefox/Edge/Opera — navigate works there, never escalate to the
+  // Safari escape. Everything else on iOS is an embedded app webview.
+  #platform() {
+    const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+    const isIOS = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document);
+    const isAndroid = /Android/i.test(ua);
+    const iosNamedBrowser = /(CriOS|FxiOS|EdgiOS|OPiOS)/i.test(ua);
+    const safariFamily = (() => {
+      try {
+        // App-injected bridges betray a webview no matter how perfectly it copies Safari (Telegram
+        // copies the full UA AND defines navigator.standalone — device-verified): real Safari never
+        // exposes window.webkit.messageHandlers or a TelegramWebviewProxy.
+        if (window.TelegramWebviewProxy || window.TelegramWebview) return false;
+        if (window.webkit && window.webkit.messageHandlers) return false;
+        return typeof navigator.standalone !== 'undefined';
+      } catch { return false; }
+    })();
+    const iosSafariAnchor = safariFamily
+      && /Version\/[\d.]+/i.test(ua) && /Safari\//i.test(ua)
+      && !/(CriOS|FxiOS|EdgiOS|OPiOS|GSA|Telegram|Instagram|FBAN|FBAV|FB_IAB|Line|MicroMessenger|WhatsApp|Snapchat|TikTok|Pinterest|LinkedIn|Slack)/i.test(ua);
+    return { ua, isIOS, isAndroid, iosNamedBrowser, iosSafariAnchor };
+  }
+
+  // In-app webviews answer a USDZ navigation their own way — Telegram (field-tested) with a
+  // download prompt, others by silently dropping it. If Quick Look hasn't backgrounded the page
+  // within a couple of seconds, bounce the HOST page to REAL Safari via the x-safari-https://
+  // scheme — the same tap there gives the true Quick Look sheet. Same escalation the viewer uses.
+  #armInAppSafariEscape(delayMs = 2500) {
+    let hidden = false;
+    const onVis = () => {
+      try { if (document.visibilityState === 'hidden') hidden = true; } catch {}
+    };
+    try { document.addEventListener('visibilitychange', onVis); } catch {}
+    setTimeout(() => {
+      try { document.removeEventListener('visibilitychange', onVis); } catch {}
+      if (hidden) return;   // Quick Look took the page — nothing to escalate
+      try {
+        const here = String(window.location.href || '');
+        if (/^https:\/\//i.test(here)) window.location.href = here.replace(/^https:\/\//i, 'x-safari-https://');
+      } catch {}
+    }, delayMs);
+  }
+
+  // Busy feedback on the built-in AR button. Navigate-mode launches DOWNLOAD the whole USDZ before
+  // anything visible happens (minutes on a slow connection), and the prepare-ar flow waits on a
+  // server-side merge — the spinner is the only signal that the tap landed. Restored when the tab
+  // comes back from AR (the hidden→visible pair) or by the failsafe timer, whichever comes first.
+  #setArBusy(failsafeMs = 45000) {
+    this.#clearArBusy();
+    const btn = this.#arBtn;
+    if (!btn) return;
+    btn.classList.add('busy');
+    btn.disabled = true;
+    let wasHidden = false;
+    const onVis = () => {
+      try {
+        if (document.visibilityState === 'hidden') { wasHidden = true; return; }
+      } catch {}
+      if (wasHidden) this.#clearArBusy();
+    };
+    const timer = setTimeout(() => this.#clearArBusy(), failsafeMs);
+    try { document.addEventListener('visibilitychange', onVis); } catch {}
+    this.#arBusyCleanup = () => {
+      try { clearTimeout(timer); } catch {}
+      try { document.removeEventListener('visibilitychange', onVis); } catch {}
+      try { btn.classList.remove('busy'); btn.disabled = false; } catch {}
+    };
+  }
+
+  #clearArBusy() {
+    // A pending auto-launch dies with the busy state: navigating the page AFTER the button has
+    // visibly returned to idle would yank the shopper somewhere they no longer expect.
+    this.#arAutoLaunchUntil = 0;
+    const fn = this.#arBusyCleanup;
+    this.#arBusyCleanup = null;
+    if (fn) { try { fn(); } catch {} }
+  }
+
+  // Finish a tap that arrived before its launch URL (prepare-ar flow). This runs OUTSIDE the
+  // original user gesture, which is why it NAVIGATES — location.href needs no activation — instead
+  // of clicking a rel="ar" anchor: Safari ignores synthetic anchor clicks without a live gesture,
+  // and a USDZ navigation still opens Quick Look there (only Apple's in-AR CTA banner is lost, on
+  // this rare cold-start path). Android intent navigations without a gesture may be blocked by the
+  // browser; the busy failsafe then restores the button and the next tap launches directly.
+  #maybeAutoLaunchAr() {
+    if (!this.#arAutoLaunchUntil) return;
+    if (Date.now() > this.#arAutoLaunchUntil) { this.#clearArBusy(); return; }
+    const ar = this.#arLaunch;
+    if (!ar || ar.arSupportEnabled === false) { this.#clearArBusy(); return; }
+    const { isIOS, isAndroid, iosNamedBrowser, iosSafariAnchor } = this.#platform();
+    const url = isIOS ? ar.iosHref : (isAndroid ? ar.androidIntent : null);
+    if (!url) return;   // keep waiting — a later re-stream may carry it (deadline still guards)
+    this.#arAutoLaunchUntil = 0;
+    if (isAndroid && ar.arCta) { try { this.#command('ar-launched', { method: 'scene-viewer' }); } catch {} }
+    if (isIOS && !iosSafariAnchor && !iosNamedBrowser) this.#armInAppSafariEscape();
+    try { window.location.href = url; } catch {}
+  }
+
+  /**
    * Launch native AR for the CURRENT configuration from the HOST's top-level document — iOS Quick
    * Look (rel="ar" anchor) / Android Scene Viewer (intent) / desktop → device-adaptive launcher tab.
    *
    * MUST be called synchronously inside your own click/tap handler: the launch fires within that
    * user gesture (URLs are pre-cached from the viewer's `ar-urls` stream, so there is no round-trip
    * to consume the activation). Returns a resolved Promise with { ok, method } — the DOM action has
-   * already happened by the time it resolves.
+   * already happened by the time it resolves. When the launch URL is still being prepared server-side
+   * (a multi-part merge or an on-demand USDZ), resolves { ok: true, method: 'preparing' } and the
+   * launch completes automatically the moment the viewer streams the fresh URL.
    */
   enterAR() {
     const ar = this.#arLaunch || null;
-    const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
-    const isIOS = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document);
-    const isAndroid = /Android/i.test(ua);
+    const { isIOS, isAndroid, iosNamedBrowser, iosSafariAnchor } = this.#platform();
     try {
       if (ar && ar.arSupportEnabled === false) return Promise.resolve({ ok: false, reason: 'ar-disabled' });
 
+      // `rel="ar"` is honoured ONLY by real Safari (and SFSafariViewController, which carries
+      // Safari's own UA). In every other iOS context — Chrome/Firefox/Edge/Opera AND app webviews
+      // (Slack, Telegram, Instagram…) — the anchor click below is a SILENT no-op: no error, no AR,
+      // a dead button. All of those contexts do hand a top-level USDZ navigation to the system,
+      // which opens the same Quick Look sheet once the file has downloaded — so send them straight
+      // at the file.
+      if (isIOS && ar && ar.iosHref && !iosSafariAnchor) {
+        // The whole USDZ downloads before Quick Look appears — show the tap landed.
+        this.#setArBusy(120000);
+        if (!iosNamedBrowser) {
+          // In-app webview: Safari FIRST, inside the tap gesture. Telegram (device-verified)
+          // answers the USDZ navigation with a download prompt, and custom-scheme navigations are
+          // honoured inside a gesture but blocked outside one — so spend the gesture on the
+          // x-safari-https:// escape and keep the USDZ attempt as the 2s fallback.
+          let escaped = false;
+          try {
+            const here = String(window.location.href || '');
+            if (/^https:\/\//i.test(here)) {
+              window.location.href = here.replace(/^https:\/\//i, 'x-safari-https://');
+              escaped = true;
+            }
+          } catch {}
+          const href = ar.iosHref;
+          setTimeout(() => {
+            try { if (document.visibilityState === 'hidden') return; } catch {}
+            try { window.location.href = href; } catch {}
+          }, escaped ? 2000 : 0);
+          return Promise.resolve({ ok: true, method: escaped ? 'safari-escape' : 'quicklook-navigate' });
+        }
+        try { window.location.href = ar.iosHref; } catch {}
+        return Promise.resolve({ ok: true, method: 'quicklook-navigate' });
+      }
+
       // iOS Quick Look — the rel="ar" anchor MUST be in the top-level document for AR (camera) mode.
       if (isIOS && ar && ar.iosHref) {
+        this.#setArBusy();
         const a = document.createElement('a');
         a.rel = 'ar';
         a.href = ar.iosHref;
@@ -578,6 +798,32 @@ class TogenarEmbed extends HTMLElement {
         img.decoding = 'async';
         img.alt = '';
         a.appendChild(img);
+
+        const ctaLabel = (ar.arCta && typeof ar.arCta.label === 'string') ? ar.arCta.label.trim() : '';
+        if (ctaLabel) {
+          // Apple posts the banner tap back to THIS anchor. Removing it on click — which is what the
+          // no-CTA path below does — throws the callback away, so with a CTA the anchor has to
+          // outlive the click and stay in the DOM for the whole AR session.
+          a.style.display = 'none';
+          let tapped = false;
+          a.addEventListener('message', (event) => {
+            if (!event || event.data !== '_apple_ar_quicklook_button_tapped' || tapped) return;
+            tapped = true;
+            this.#emitArCtaTap({
+              surface: 'quicklook',
+              arMode: 'quicklook',
+              label: ctaLabel,
+              projectId: String(this.getAttribute('project') || ''),
+            });
+          }, false);
+          document.body.appendChild(a);
+          a.click();
+          // Tapping the banner quits Quick Look, so the page regains focus and may race Apple's
+          // message. Removal is deferred well past both.
+          setTimeout(() => { try { a.remove(); } catch {} }, 1800000);
+          return Promise.resolve({ ok: true, method: 'quicklook' });
+        }
+
         document.body.appendChild(a);
         a.click();
         try { a.remove(); } catch {}
@@ -586,15 +832,35 @@ class TogenarEmbed extends HTMLElement {
 
       // Android Scene Viewer — intent navigation from the top-level document.
       if (isAndroid && ar && ar.androidIntent) {
+        // Scene Viewer's own banner cannot carry the CTA (its button is hard-labelled "Visit" and
+        // reports nothing back), so the viewer draws it on the frame AFTER AR. It keys off the tab
+        // backgrounding, which the navigation below is about to cause — so arm it first.
+        if (ar.arCta) { try { this.#command('ar-launched', { method: 'scene-viewer' }); } catch {} }
+        this.#setArBusy();
         try { window.location.href = ar.androidIntent; } catch {}
         return Promise.resolve({ ok: true, method: 'scene-viewer' });
       }
 
-      // Desktop, or URLs not streamed yet → open the device-adaptive launcher (QR-to-phone) in a new
-      // tab (still inside this gesture, so the popup is allowed).
+      // A phone with NO platform URL yet: the multi-part merge / on-demand USDZ is still preparing
+      // server-side. The old fallback opened the launcher tab here — on a phone that reads as a
+      // broken button (a popup, usually blocked in webviews, instead of AR). Ask the viewer to
+      // prepare, show the button busy, and finish this tap's launch when the fresh URL streams in
+      // (`ar-urls` → #maybeAutoLaunchAr).
+      if (isIOS || isAndroid) {
+        this.#setArBusy(90000);
+        this.#arAutoLaunchUntil = Date.now() + 90000;
+        try { this.#command('prepare-ar', {}); } catch {}
+        return Promise.resolve({ ok: true, method: 'preparing' });
+      }
+
+      // Desktop → open the device-adaptive launcher (QR-to-phone) in a new tab (still inside this
+      // gesture, so the popup is allowed). No 'noopener' feature: it forces window.open to return
+      // null, hiding whether the tab opened — opener is severed by hand instead.
       const launcher = this.#launcherUrl();
       if (launcher) {
-        try { window.open(launcher, '_blank', 'noopener,noreferrer'); } catch {}
+        let opened = null;
+        try { opened = window.open(launcher, '_blank'); } catch {}
+        if (opened) { try { opened.opener = null; } catch {} }
         return Promise.resolve({ ok: true, method: 'launcher-tab' });
       }
       return Promise.resolve({ ok: false, reason: 'no-ar-url' });
@@ -620,7 +886,17 @@ class TogenarEmbed extends HTMLElement {
   }
 
   // Synchronous device-adaptive launcher URL (QR/scan flow) for the desktop / not-yet-ready fallback.
+  //
+  // PREFER the URL the viewer streams on `ar-urls`: it carries the shopper's CURRENT configurator
+  // selection (plus the launcher/QR theme), so the QR encodes the configuration on screen. Building it
+  // here from attributes alone cannot — it knows the project, not the selection — and doing so shipped
+  // a QR for the DEFAULT model while a configured one was in view. Keep the attribute build strictly
+  // as the pre-stream fallback (single-model embeds, or a tap before the first `ar-urls` arrives).
   #launcherUrl() {
+    const streamed = this.#arLaunch && typeof this.#arLaunch.launcherUrl === 'string'
+      ? this.#arLaunch.launcherUrl.trim()
+      : '';
+    if (streamed) return streamed;
     try {
       const base = pick(this.getAttribute('base-url')) || DEFAULT_BASE_URL;
       const project = pick(this.getAttribute('project')) || pick(this.getAttribute('project-id'));

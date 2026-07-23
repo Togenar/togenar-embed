@@ -1,7 +1,30 @@
-# Togenar Embed — Add to Cart Integration
+<p align="center">
+  <a href="https://togenar.com">
+    <img src="https://api.togenar.com/images/togenar-mail-logo.png" alt="Togenar" width="220">
+  </a>
+</p>
 
-Embed the live 3D configurator on any product page. Shoppers customize it, view it in
-their room with AR, and add the configured product to **your** cart — without leaving your site.
+<p align="center">
+  <a href="https://www.npmjs.com/package/@togenar/embed"><img src="https://img.shields.io/npm/v/@togenar/embed" alt="npm version"></a>
+  <a href="https://packagephobia.com/result?p=@togenar/embed"><img src="https://packagephobia.com/badge?p=@togenar/embed" alt="install size"></a>
+  <a href="https://www.npmjs.com/package/@togenar/embed"><img src="https://img.shields.io/npm/types/@togenar/embed" alt="types"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/@togenar/embed" alt="license"></a>
+</p>
+
+# `<togenar-embed>` — live 3D product configurator & AR for any storefront
+
+`@togenar/embed` is the official Togenar web component. One script tag — or one `import` —
+puts a live 3D product configurator with native iOS / Android AR on any product page:
+shoppers pick colors, materials and options, see the product in their own space, and hand
+your cart the exact configured SKUs. **3.4 KB gzipped, zero dependencies, TypeScript
+definitions included.**
+
+- **Docs:** [docs.togenar.com](https://docs.togenar.com/embed/quick-start/) — quick start, attributes, full SDK reference
+- **Live tester:** [Test your embed](https://docs.togenar.com/embed/test-your-embed/) — paste a project ID, verify end to end in the browser
+- **Demo:** [`demo.html`](./demo.html) — self-contained playground against any published project
+
+The rest of this page is the **add-to-cart integration**: wiring the configured product
+into your own store's cart, without the shopper ever leaving your site.
 
 **How the split works.** Togenar owns *Configure + Present* end-to-end: the embed, the
 customization UI, AR, snapshots, share links, live stock and price *display*. Your store
@@ -164,6 +187,7 @@ the events report:
 | `getOptions()` | Enumerate every part + variant (with `select()`-ready handles + `sku`) to build your **own** option panel. |
 | `select(partKey, variantKey)` | Drive a swap from your own UI. Resolves after the model settles. |
 | `reset()` | Back to the published default. |
+| `addedToCart(detail?)` | Tell us your cart call succeeded — call it from your own Add-to-cart handler. On **Android** this is what credits an AR-driven sale: Google allows no button inside AR, and we don't draw a second one on top of yours, so an add that lands just after the shopper leaves AR is attributed to that session. |
 | `getShareLink()` / `getQr()` / `getSnapshot()` | Short share link, "scan for AR" QR, PNG hero of the current config. |
 
 Headless mode (`picker="off"`) hides the built-in panel so your `getOptions()` + `select()`
@@ -179,8 +203,29 @@ Listen with `tg.addEventListener('togenar:<name>', e => …)`:
 | --- | --- |
 | `togenar:ready` | Viewer loaded and interactive. |
 | `togenar:configurator:selection_change` | On load + every option change. `detail = { parts, shareUrl }`. |
-| `togenar:commerce:add_to_cart_success` / `…_fail` | Hooks **you** fire for analytics after your cart call resolves. |
+| `togenar:configurator:enquire` | Shopper tapped the summary panel's enquire button (needs the `enquire` attribute). `detail = { parts, skus, shareUrl }`. |
+| `togenar:ar-add-to-cart` | Shopper added the configured product to the cart from **inside iOS AR** (enable **AR Add to Cart** per project in WebAR settings). `detail = { surface, arMode, label, projectId }`. Wire it to your cart. Android has no in-AR button — call `addedToCart()` from your own button instead, and the add is credited to the AR session. |
+| `togenar:commerce:add_to_cart_success` / `…_fail` | Emitted by the viewer's own commerce flows. To report **your** cart call, use `addedToCart()` above. |
 | `togenar:error` | Load/config failure. |
+
+### Conversion attributes
+
+| Attribute | Purpose |
+| --- | --- |
+| `enquire` | Show the summary panel's enquire button. Off by default — a button with no listener is a dead end. |
+| `enquire-label` | Rename it ("Request a quote", "Add to cart", …). |
+| `consent="analytics"` | Opt in to configurator funnel analytics (option picks, enquiries). Off by default; **you are the data controller** for it. |
+
+```html
+<togenar-embed project="…" configurator enquire enquire-label="Request a quote" consent="analytics"></togenar-embed>
+```
+
+```js
+tg.addEventListener('togenar:configurator:enquire', (e) => openQuoteForm(e.detail));
+```
+
+Because the tap happens **inside** the configurator, it can be attributed — a buy button that lives
+outside the 3D player cannot be.
 
 ---
 

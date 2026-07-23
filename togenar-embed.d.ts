@@ -142,7 +142,9 @@ export declare class TogenarEmbed extends HTMLElement {
    * MUST be called synchronously inside your own click/tap handler: the launch fires
    * within that user gesture. URLs are pre-cached from the viewer's `ar-urls` stream, so
    * there is no round-trip to consume the activation. The DOM action has already happened
-   * by the time the promise resolves.
+   * by the time the promise resolves. When the launch URL is still being prepared
+   * server-side, resolves `{ ok: true, method: 'preparing' }` and the launch completes
+   * automatically once the viewer streams the fresh URL.
    */
   enterAR(): Promise<TogenarArResult>;
 
