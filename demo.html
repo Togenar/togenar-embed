@@ -220,22 +220,16 @@
         embed.setAttribute('project', project.value.trim());
         embed.setAttribute('mode', mode.value);
         embed.setAttribute('base-url', base.value.trim());
-        // Opt into the configurator + (optionally) hide the built-in picker so these buttons are the only UI.
         if (configurator.checked) embed.setAttribute('configurator', '1');
         else embed.removeAttribute('configurator');
         if (headless.checked) embed.setAttribute('picker', 'off');
         else embed.removeAttribute('picker');
       });
 
-      // Host SDK (Tier 3): drive the 3D from the page's own controls. select() resolves URL handles
-      // → ids with the same logic as the deep-link reader, so it agrees with shared links.
-      // getOptions() is async: it round-trips to the viewer and returns every part + all variants
-      // with select()-ready handles, so this page could build its own swatch panel data-driven.
       document.getElementById('cmd-options').addEventListener('click', async () => {
         try { appendEvent('host:getOptions()', await embed.getOptions()); }
         catch (e) { appendEvent('host:getOptions() ERROR', { error: String(e) }); }
       });
-      // select()/reset() are async: they resolve with { ok, selection } AFTER the model swap settles.
       document.getElementById('cmd-select').addEventListener('click', async () => {
         try { appendEvent('host:select()', await embed.select(partKey.value.trim(), variantKey.value.trim())); }
         catch (e) { appendEvent('host:select() ERROR', { error: String(e) }); }
@@ -248,20 +242,13 @@
         appendEvent('host:getSelection()', embed.getSelection());
       });
 
-      // Store glue: the exact flow a product page uses. Arm the button on selection_change,
-      // then on click read the SKUs + share link and hand them to your cart (mocked here as a log).
       const addToCart = document.getElementById('add-to-cart');
       const viewAr = document.getElementById('view-ar');
       embed.addEventListener('togenar:configurator:selection_change', (e) => {
-        // Arm the button only when the config yields mappable SKUs — a store maps by SKU, never by
-        // the internal variantId (README §4). No SKU ⇒ nothing to add ⇒ button stays disabled.
         const skus = (e.detail?.parts || []).map((p) => p.sku).filter(Boolean);
         addToCart.disabled = skus.length === 0;
       });
       addToCart.addEventListener('click', () => {
-        // Replace this log with your real cart call, e.g. fetch('/cart/add.js', …) on Shopify.
-        // A real store maps by SKU, not the internal variantId, so parts with no SKU are DROPPED
-        // (never shipped with a garbage id). The warning surfaces exactly what fell out.
         const sel = embed.getSelection() || {};
         const parts = sel.parts || [];
         const sellable = parts.filter((p) => p.sku);

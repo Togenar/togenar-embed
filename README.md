@@ -21,21 +21,20 @@ definitions included.**
 
 - **Docs:** [docs.togenar.com](https://docs.togenar.com/embed/quick-start/) — quick start, attributes, full SDK reference
 - **Live tester:** [Test your embed](https://docs.togenar.com/embed/test-your-embed/) — paste a project ID, verify end to end in the browser
-- **Demo:** [`demo.html`](./demo.html) — self-contained playground against any published project
+- **Demo:** [`demo.html`](./demo.html) — self-contained reference implementation for any published project
 
-The rest of this page is the **add-to-cart integration**: wiring the configured product
-into your own store's cart, without the shopper ever leaving your site.
+The rest of this page documents the **add-to-cart integration**: passing the configured
+product into your own cart, without the shopper leaving your site.
 
-**How the split works.** Togenar owns *Configure + Present* end-to-end: the embed, the
-customization UI, AR, snapshots, share links, live stock and price *display*. Your store
-stays the single source of truth for the **cart, checkout, inventory, tax and payment** —
-exactly like every other headless configurator (Roomle, Threekit, Plattar). The embed hands
-you the configured **SKU**; a few lines of glue POST it to your existing cart. This page is
-that glue.
+**Division of responsibility.** Togenar delivers the configuration and presentation layer
+end to end: the embed, the customization interface, AR, snapshots, share links, and live
+stock and price *display*. Your commerce platform remains the system of record for
+**cart, checkout, inventory, tax and payment**. The embed returns the configured **SKU**;
+a short integration posts it to your existing cart. This page specifies that integration.
 
 ---
 
-## 1. Drop in the embed
+## 1. Add the embed
 
 ```html
 <script type="module" src="https://model.togenar.com/embed/togenar-embed.js"></script>
@@ -127,7 +126,7 @@ workspace plan; on desktop, use `getQr()` for a "scan to view in AR" code.
 ## 4. Concrete: Shopify & WooCommerce
 
 Both platforms add to cart by their **internal variant/product ID, not by SKU.** So the one
-real integration task is mapping the Togenar SKU → your platform's ID. This is the glue the
+real integration task is mapping the Togenar SKU → your platform's ID. That mapping is what the
 generic `/cart/add` above stands in for.
 
 ### Shopify (AJAX Cart API)
@@ -187,7 +186,7 @@ the events report:
 | `getOptions()` | Enumerate every part + variant (with `select()`-ready handles + `sku`) to build your **own** option panel. |
 | `select(partKey, variantKey)` | Drive a swap from your own UI. Resolves after the model settles. |
 | `reset()` | Back to the published default. |
-| `addedToCart(detail?)` | Tell us your cart call succeeded — call it from your own Add-to-cart handler. On **Android** this is what credits an AR-driven sale: Google allows no button inside AR, and we don't draw a second one on top of yours, so an add that lands just after the shopper leaves AR is attributed to that session. |
+| `addedToCart(detail?)` | Confirms that your cart call succeeded — call it from your own Add-to-cart handler. On **Android** this is what credits an AR-driven sale: Google allows no button inside AR, and Togenar does not render a second one over yours, so an add that lands immediately after the shopper leaves AR is attributed to that session. |
 | `getShareLink()` / `getQr()` / `getSnapshot()` | Short share link, "scan for AR" QR, PNG hero of the current config. |
 
 Headless mode (`picker="off"`) hides the built-in panel so your `getOptions()` + `select()`
@@ -229,8 +228,8 @@ outside the 3D player cannot be.
 
 ---
 
-## 7. Try it
+## 7. Reference implementation
 
-`demo.html` in this folder is a live, self-contained playground — including a working
+`demo.html` in this folder is a live, self-contained reference build — including a working
 **Add to cart** card that shows the exact payload a real store would POST. Open it against a
 published project to see the full customize → AR → add-to-cart flow end to end.

@@ -1,8 +1,3 @@
-// Minimal, framework-agnostic embed component for customer websites.
-// Strategy: isolate via iframe to avoid CSS/JS conflicts and simplify integration.
-// Usage:
-//   <script type="module" src="https://model.togenar.com/embed/togenar-embed.js"></script>
-//   <togenar-embed project="..." mode="launcher"></togenar-embed>
 
 const DEFAULT_BASE_URL = 'https://model.togenar.com';
 
@@ -55,43 +50,25 @@ const buildViewerUrl = ({
   if (model) url.searchParams.set('model', model);
   if (lang) url.searchParams.set('lang', lang);
   if (configurator) url.searchParams.set('configurator', '1');
-  // Headless / picker-off: hide the built-in panel so the host's own UI is the only chrome. The
-  // viewer still loads the configurator + Host SDK bridge, so the store drives swaps via select().
   if (headless) url.searchParams.set('picker', 'off');
-  // Host owns native AR: the SDK launches Quick Look / Scene Viewer from the TOP-LEVEL document
-  // (the only context where iOS shows AR mode). Tell the viewer to hide its in-iframe AR button
-  // and instead stream ready-to-launch AR URLs up to us. Not for the launcher page (already AR-first).
   if (arHost && !launcher) url.searchParams.set('arhost', '1');
   if (!launcher) url.searchParams.set('embed', '1');
   if (skipAnalytics) url.searchParams.set('na', '1');
-  // Configurator funnel analytics (which options a shopper picks, whether they enquired) profiles the
-  // visitor, so it is OPT-IN and OFF by default. Set `consent="analytics"` only once you have the
-  // visitor's consent — you are the data controller for it.
   if (behaviouralConsent) url.searchParams.set('consent', '1');
-  // Enquire is the configurator's conversion step and it is YOURS to fulfil: the viewer shows the
-  // button and emits `togenar:configurator:enquire` with the parts, SKUs and share URL; your page
-  // turns that into a quote request or a cart line. Off unless you ask for it — a button with no
-  // listener is a dead end for the shopper.
   if (enquire) {
     url.searchParams.set('enquire', '1');
     if (enquireLabel) url.searchParams.set('enquire_label', enquireLabel);
   }
 
-  // Owner draft preview: a raw query fragment ("pvexp=..&pvsig=..") forwarded verbatim so the
-  // owner can preview an UNPUBLISHED project. Never set for public embeds.
   if (preview) {
     try {
       new URLSearchParams(preview).forEach((value, key) => {
         if (key) url.searchParams.set(key, value);
       });
     } catch {
-      /* ignore malformed preview token */
     }
   }
-  // Embed mode always uses the dedicated /embed/* entrypoints.
 
-  // Optional sizing hints.
-  // IMPORTANT: do not add these by default, because changing element size would change the URL and reload the iframe.
   if (sizeHints) {
     if (width) url.searchParams.set('w', String(width));
     if (height) url.searchParams.set('h', String(height));
@@ -134,16 +111,16 @@ class TogenarEmbed extends HTMLElement {
   #root;
   #onMessage;
   #expectedOrigin = null;
-  #lastSelection = null;   // cached { parts:[{partId,partLabel,variantId,label,sku,modelName}], shareUrl }
-  #pending = new Map();    // correlation id -> { resolve, reject, timer, msg, sentEarly } for in-flight requests
-  #reqId = 0;              // monotonic request id
-  #bridged = false;        // viewer bridge PROVEN reachable (a __togenar message arrived) → safe to post
-  #preflight = [];         // request envelopes queued until the bridge is proven (or the fallback fires)
-  #fallbackTimer = null;   // last-resort flush for frames that never post messages
-  #arLaunch = null;        // cached { hasAr, iosHref, androidIntent, androidFallback, arSupportEnabled } from the viewer
-  #arBtn = null;           // top-level AR button (host document) — the ONLY context iOS Quick Look shows AR mode
-  #arBusyCleanup = null;   // teardown for the AR button's busy state (listeners + failsafe timer)
-  #arAutoLaunchUntil = 0;  // deadline (ms epoch): an `ar-urls` arrival before this auto-launches (prepare-ar flow)
+  #lastSelection = null;
+  #pending = new Map();
+  #reqId = 0;
+  #bridged = false;
+  #preflight = [];
+  #fallbackTimer = null;
+  #arLaunch = null;
+  #arBtn = null;
+  #arBusyCleanup = null;
+  #arAutoLaunchUntil = 0;
 
   constructor() {
     super();
@@ -242,9 +219,6 @@ class TogenarEmbed extends HTMLElement {
     }
     this.#iframe.referrerPolicy = 'strict-origin-when-cross-origin';
 
-    // Permissions needed for AR/3D viewer in iframe.
-    // WebXR in iframes requires allow="xr-spatial-tracking" (Chrome).
-    // Fullscreen is often needed for good UX.
     const allow = this.getAttribute('allow') || 'xr-spatial-tracking; fullscreen; camera; accelerometer; gyroscope';
     this.#iframe.setAttribute('allow', allow);
 
@@ -253,9 +227,6 @@ class TogenarEmbed extends HTMLElement {
     this.#status.innerHTML = `<div class="row"><span class="spinner"></span></div>`;
     this.#status.style.display = 'none';
 
-    // Top-level AR button. It lives in the host document (shadow DOM of this element, NOT the
-    // cross-origin iframe), so tapping it launches native AR within a real top-level user gesture —
-    // the only way iOS Quick Look shows AR (camera) mode. Hidden until the viewer reports AR URLs.
     this.#arBtn = document.createElement('button');
     this.#arBtn.type = 'button';
     this.#arBtn.className = 'ar-btn';
@@ -273,12 +244,7 @@ class TogenarEmbed extends HTMLElement {
     this.#shadow.appendChild(this.#root);
 
     this.#iframe.addEventListener('load', () => {
-      // If the iframe loads, hide status. If project is invalid, viewer itself will show error UI.
       this.#status.style.display = 'none';
-      // Do NOT flush queued requests here: 'load' fires when the static shell parses, but the
-      // viewer bridge (main.js) is dynamically imported AFTER that — a message posted now is
-      // silently lost. Wait for bridge proof (#markBridged); arm a timer flush as a last resort
-      // for frames that never post messages.
       this.#armFallbackFlush();
       this.dispatchEvent(new CustomEvent('togenar:load', { bubbles: true }));
     });
@@ -294,35 +260,29 @@ class TogenarEmbed extends HTMLElement {
         const record = data;
         if (record.__togenar !== 1) return;
 
-        // Any authenticated viewer message proves the bridge is listening.
         this.#markBridged();
 
-        // Correlated response to a request() — resolve/reject the pending promise, not an event.
         if (record.type === 'response') { this.#resolveResponse(record); return; }
 
         const name = typeof record.event === 'string' ? record.event.trim() : '';
         if (!name) return;
 
-        // Hide loader on ready (more reliable than iframe load).
         if (name === 'ready') {
           try { this.#status.style.display = 'none'; } catch {}
         }
 
-        // Cache the configurator selection so getSelection()/getShareUrl() are synchronous pulls
-        // (no round-trip): the viewer emits this on mount and on every pick, so the cache is current.
         if (name === 'configurator:selection_change') {
           this.#lastSelection = record.detail ?? null;
         }
 
-        // Cache native-AR launch URLs streamed by the viewer (embed + ?arhost=1). enterAR() / the AR
-        // button fire these from the top-level document WITHIN the tap — no round-trip, no lost gesture.
         if (name === 'ar-urls') {
           this.#arLaunch = record.detail ?? null;
           try { this.#updateArButton(); } catch {}
-          // A tap arrived before the launch URL did (prepare-ar flow): the viewer has now finished
-          // preparing and re-streamed — finish that tap's launch instead of making the shopper guess
-          // that a second tap is needed.
           try { this.#maybeAutoLaunchAr(); } catch {}
+        }
+
+        if (name === 'ar-prepare-failed') {
+          try { this.#clearArBusy(); } catch {}
         }
 
         this.dispatchEvent(new CustomEvent(`togenar:${name}`.replace('::', ':'), {
@@ -344,7 +304,6 @@ class TogenarEmbed extends HTMLElement {
   disconnectedCallback() {
     try { window.removeEventListener('message', this.#onMessage); } catch {}
     try { this.#clearArBusy(); } catch {}
-    // Fail any in-flight requests so callers don't hang on a removed embed.
     try { for (const [, entry] of this.#pending) { clearTimeout(entry.timer); entry.reject(new Error('togenar: embed disconnected')); } } catch {}
     this.#pending.clear();
     this.#preflight.length = 0;
@@ -353,7 +312,6 @@ class TogenarEmbed extends HTMLElement {
   }
 
   attributeChangedCallback() {
-    // Re-render URL / sizing on any change.
     if (!this.isConnected) return;
     this.#applySizing();
     this.#sync();
@@ -361,9 +319,6 @@ class TogenarEmbed extends HTMLElement {
   }
 
   #applySizing() {
-    // Options:
-    // - aspect="16/9" or aspect="1/1"
-    // - height="520px" (fixed)
     const aspect = pick(this.getAttribute('aspect'));
     const height = pick(this.getAttribute('height'));
 
@@ -379,7 +334,7 @@ class TogenarEmbed extends HTMLElement {
     if (ratioEl) ratioEl.style.display = '';
     this.#root.style.height = '';
 
-    let ratio = 56.25; // 16:9
+    let ratio = 56.25;
     const normAspect = aspect ? aspect.replace(/:/g, '/') : aspect;
     if (normAspect && normAspect.includes('/')) {
       const [a, b] = normAspect.split('/').map((x) => Number(String(x).trim()));
@@ -407,16 +362,12 @@ class TogenarEmbed extends HTMLElement {
     const launcher = launcherFromMode || launcherFromAttr;
 
     const configurator = boolAttr(this.getAttribute('configurator'));
-    // Headless / picker-off: the host renders its own option UI. `picker="off|none|false"` or
-    // `mode="headless"` suppresses the built-in panel; the configurator + Host SDK still load.
     const pickerAttr = (pick(this.getAttribute('picker')) || '').toLowerCase();
     const headless = mode === 'headless' || pickerAttr === 'off' || pickerAttr === 'none' || pickerAttr === 'false';
     const preview = pick(this.getAttribute('preview'));
 
     const sizeHints = boolAttr(this.getAttribute('size-hints'));
     const skipAnalytics = boolAttr(this.getAttribute('na'));
-    // `consent="analytics"` (or a bare `consent`) asserts the visitor consented to behavioural
-    // tracking. Anything else — including the attribute being absent — means no consent.
     const enquire = boolAttr(this.getAttribute('enquire'));
     const enquireLabel = pick(this.getAttribute('enquire-label'));
 
@@ -449,30 +400,24 @@ class TogenarEmbed extends HTMLElement {
       behaviouralConsent,
       enquire,
       enquireLabel,
-      // Inline viewer/configurator embeds: the SDK owns native AR from the top level.
       arHost: !launcher,
     });
 
-    // Only show loader if we're actually going to reload the iframe.
-    // Important: attributeChangedCallback can call #sync() for non-URL-affecting changes;
-    // showing the spinner in that case creates a false "Loading 3D…" overlay.
     if (this.#iframe.src !== url) {
       this.#status.style.display = 'none';
 
-      // New document → the bridge must prove itself again before we post into the frame.
       this.#bridged = false;
       if (this.#fallbackTimer) { clearTimeout(this.#fallbackTimer); this.#fallbackTimer = null; }
+      this.#arLaunch = null;
+      this.#lastSelection = null;
+      try { this.#clearArBusy(); } catch {}
+      try { this.#updateArButton(); } catch {}
 
       this.#iframe.src = url;
       try { this.#expectedOrigin = new URL(url).origin; } catch { this.#expectedOrigin = null; }
     }
   }
 
-  // ── Host Embed SDK: inbound control (correlated request/response) ──────────────────────────────
-  // The bridge counts as reachable only once a __togenar message arrives FROM the viewer: iframe
-  // 'load' is too early (main.js is dynamically imported after the shell parses), so a request
-  // posted on 'load' can vanish. On proof: re-send anything a fallback flush may have posted into
-  // the void (responses correlate by id, so a duplicate answer is ignored), then flush the queue.
   #markBridged() {
     if (this.#bridged) return;
     this.#bridged = true;
@@ -484,9 +429,6 @@ class TogenarEmbed extends HTMLElement {
     for (const msg of queued) this.#send(msg);
   }
 
-  // Last resort for frames that never post messages (e.g. the AR launcher page): flush queued
-  // requests after a grace period anyway, but mark them so #markBridged() re-sends them if the
-  // bridge does show up later.
   #armFallbackFlush() {
     if (this.#bridged || this.#fallbackTimer) return;
     this.#fallbackTimer = setTimeout(() => {
@@ -501,33 +443,21 @@ class TogenarEmbed extends HTMLElement {
     }, 8000);
   }
 
-  // Low-level post of a request envelope into the iframe (no-op if the frame isn't reachable yet).
-  // Never posts to '*': until the viewer URL is set we do not know who is in the frame, and a
-  // wildcard target would hand the envelope to whatever document happens to be there.
   #send(msg) {
     const targetOrigin = this.#expectedOrigin;
     if (!targetOrigin) return;
-    try { const win = this.#iframe && this.#iframe.contentWindow; if (win) win.postMessage(msg, targetOrigin); } catch { /* frame gone */ }
+    try { const win = this.#iframe && this.#iframe.contentWindow; if (win) win.postMessage(msg, targetOrigin); } catch {  }
   }
 
-  // Fire-and-forget into the viewer. Not queued and never awaited: the AR paths that use it run
-  // inside a user gesture that is about to be spent on a native launch, and awaiting an ack would
-  // spend it. The bridge is already proven by then — the AR URLs it launches from arrived over it.
   #command(command, args = {}) {
     this.#send({ __togenar: 1, type: 'command', command, args: args || {} });
   }
 
-  // The shopper's one measurable AR action, from either surface: Apple's in-AR banner (iOS) or the
-  // return sheet the viewer draws after Scene Viewer (Android). Dispatched SYNCHRONOUSLY — Apple
-  // hands us the tap with an unspent user activation, and that activation is the only reason a host
-  // can open Apple Pay from this handler. An await here would throw it away.
   #emitArCtaTap(detail) {
     this.dispatchEvent(new CustomEvent('togenar:ar-add-to-cart', { bubbles: true, detail }));
-    this.#command('ar-add-to-cart', detail);   // viewer owns the telemetry auth, so it records the tap
+    this.#command('ar-add-to-cart', detail);
   }
 
-  // Send a correlated request and return a Promise that resolves with the viewer's result (or rejects
-  // on error / timeout). Requests issued before the bridge is proven are queued and flushed on proof.
   #request(method, params = {}, timeoutMs = 30000) {
     const id = ++this.#reqId;
     const msg = { __togenar: 1, type: 'request', id, method, params: params || {} };
@@ -540,7 +470,6 @@ class TogenarEmbed extends HTMLElement {
     });
   }
 
-  // Resolve/reject the pending promise for a { type:'response', id, ok, result, error } message.
   #resolveResponse(record) {
     const entry = this.#pending.get(record.id);
     if (!entry) return;
@@ -550,101 +479,47 @@ class TogenarEmbed extends HTMLElement {
     else entry.reject(new Error(record.error || 'togenar: request failed'));
   }
 
-  // ── Public API for the merchant's page ─────────────────────────────────────────────────────────
-  /**
-   * Current configuration: { parts: [{ partId, partLabel, variantId, label, sku, modelName }], shareUrl }.
-   * Cached from the viewer's selection_change event (emitted on load + every change). Returns null
-   * until the first event arrives — listen for 'togenar:configurator:selection_change' to know when.
-   */
   getSelection() {
     return this.#lastSelection;
   }
 
-  /** Shareable deep-link URL for the current configuration (or null until the first selection event). */
   getShareUrl() {
     return (this.#lastSelection && this.#lastSelection.shareUrl) || null;
   }
 
-  /** The SKUs of the current configuration (one per configurable part), for the cart payload. */
   getSkus() {
     const parts = (this.#lastSelection && Array.isArray(this.#lastSelection.parts)) ? this.#lastSelection.parts : [];
     return parts.map((p) => p && p.sku).filter(Boolean);
   }
 
-  /**
-   * Enumerate every part + ALL its variants with select()-ready url handles, so the host can build its
-   * own option panel without re-deriving slugs. Async (round-trips to the viewer); resolves to
-   * [{ partId, partKey, label, defaultVariantId, variants:[{ variantId, handle, label, sku, swatch,
-   * swatchImage, modelName, isDefault }] }].
-   */
   getOptions() {
     return this.#request('getOptions');
   }
 
-  /**
-   * Drive a selection from the store's own UI. Keys are the URL handles (the value after ?part=…),
-   * e.g. select('body', 'walnut'). Async: resolves with { ok, selection } AFTER the model swap
-   * settles (so you can update the cart on completion); rejects on an unknown handle / timeout.
-   */
   select(partKey, variantKey) {
     return this.#request('select', { partKey, variantKey });
   }
 
-  /** Reset the configuration to the published default. Async: resolves with { ok, selection }. */
   reset() {
     return this.#request('reset');
   }
 
-  /**
-   * Push live stock from the store. Keys are the SAME handles getOptions() returns:
-   *   setAvailability({ body: { walnut: false, oak: true }, ... })   // false = out of stock
-   * Out-of-stock swatches are dimmed + struck through and become unselectable in the built-in picker,
-   * and getOptions() then reports each variant's `available`. Async: resolves with { ok, applied }.
-   */
   setAvailability(availability) {
     return this.#request('setAvailability', { availability });
   }
 
-  /**
-   * Push price DISPLAY from the store's own catalogue. Keys are the SAME SKUs selection_change /
-   * getSkus() report, so you round-trip your own identifiers:
-   *   setPrices({ currency: 'EUR', locale: 'de-DE', items: { 'SKU-1': 129.9 }, total: 259.8 })
-   * Numbers are Intl-formatted with currency/locale; string values are shown verbatim (pre-format
-   * them yourself); total is optional (auto-summed when every shown price is numeric). Prices appear
-   * in the viewer's "View summary" modal. Pass null to clear. The viewer never computes prices —
-   * your page stays the single source of pricing truth. Async: resolves with { ok, applied }.
-   */
   setPrices(prices) {
     return this.#request('setPrices', { prices });
   }
 
-  /** Ease the camera back to its opening framing. Async: resolves with { ok }. */
   resetCamera() {
     return this.#request('resetCamera');
   }
 
-  /**
-   * Tell us your cart call succeeded. Call it from your own "Add to cart" handler, right after your
-   * store confirms the add — one line, and it is what makes AR measurable on Android.
-   *
-   * Android gives us no way to put a button inside AR and no callback when the shopper leaves it, so
-   * we do not draw one on top of yours: your button is already there, usually pinned to the bottom of
-   * the phone. Instead, an add that lands shortly after the shopper walks out of AR is credited to
-   * that AR session. Without this call, that sale looks like it came from nowhere.
-   *
-   * Fire-and-forget; safe to call on every add, AR or not.
-   */
   addedToCart(detail = {}) {
     this.#command('added-to-cart', detail || {});
   }
 
-  // Shared UA sniff for the launch paths (iPadOS masquerades as Macintosh, hence the touch probe).
-  // `iosSafariAnchor`: real Safari / SFSafariViewController — the only context honouring rel="ar".
-  // A Safari-shaped UA is NOT proof: Telegram's WKWebView (device-verified) carries Safari's FULL
-  // UA — Version/ + Safari/, no app token. navigator.standalone is the discriminator WebKit itself
-  // provides: defined (true/false) only in the Safari family; embedded webviews leave it undefined.
-  // `iosNamedBrowser`: Chrome/Firefox/Edge/Opera — navigate works there, never escalate to the
-  // Safari escape. Everything else on iOS is an embedded app webview.
   #platform() {
     const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
     const isIOS = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document);
@@ -652,9 +527,6 @@ class TogenarEmbed extends HTMLElement {
     const iosNamedBrowser = /(CriOS|FxiOS|EdgiOS|OPiOS)/i.test(ua);
     const safariFamily = (() => {
       try {
-        // App-injected bridges betray a webview no matter how perfectly it copies Safari (Telegram
-        // copies the full UA AND defines navigator.standalone — device-verified): real Safari never
-        // exposes window.webkit.messageHandlers or a TelegramWebviewProxy.
         if (window.TelegramWebviewProxy || window.TelegramWebview) return false;
         if (window.webkit && window.webkit.messageHandlers) return false;
         return typeof navigator.standalone !== 'undefined';
@@ -666,10 +538,6 @@ class TogenarEmbed extends HTMLElement {
     return { ua, isIOS, isAndroid, iosNamedBrowser, iosSafariAnchor };
   }
 
-  // In-app webviews answer a USDZ navigation their own way — Telegram (field-tested) with a
-  // download prompt, others by silently dropping it. If Quick Look hasn't backgrounded the page
-  // within a couple of seconds, bounce the HOST page to REAL Safari via the x-safari-https://
-  // scheme — the same tap there gives the true Quick Look sheet. Same escalation the viewer uses.
   #armInAppSafariEscape(delayMs = 2500) {
     let hidden = false;
     const onVis = () => {
@@ -678,7 +546,7 @@ class TogenarEmbed extends HTMLElement {
     try { document.addEventListener('visibilitychange', onVis); } catch {}
     setTimeout(() => {
       try { document.removeEventListener('visibilitychange', onVis); } catch {}
-      if (hidden) return;   // Quick Look took the page — nothing to escalate
+      if (hidden) return;
       try {
         const here = String(window.location.href || '');
         if (/^https:\/\//i.test(here)) window.location.href = here.replace(/^https:\/\//i, 'x-safari-https://');
@@ -686,10 +554,6 @@ class TogenarEmbed extends HTMLElement {
     }, delayMs);
   }
 
-  // Busy feedback on the built-in AR button. Navigate-mode launches DOWNLOAD the whole USDZ before
-  // anything visible happens (minutes on a slow connection), and the prepare-ar flow waits on a
-  // server-side merge — the spinner is the only signal that the tap landed. Restored when the tab
-  // comes back from AR (the hidden→visible pair) or by the failsafe timer, whichever comes first.
   #setArBusy(failsafeMs = 45000) {
     this.#clearArBusy();
     const btn = this.#arBtn;
@@ -713,20 +577,12 @@ class TogenarEmbed extends HTMLElement {
   }
 
   #clearArBusy() {
-    // A pending auto-launch dies with the busy state: navigating the page AFTER the button has
-    // visibly returned to idle would yank the shopper somewhere they no longer expect.
     this.#arAutoLaunchUntil = 0;
     const fn = this.#arBusyCleanup;
     this.#arBusyCleanup = null;
     if (fn) { try { fn(); } catch {} }
   }
 
-  // Finish a tap that arrived before its launch URL (prepare-ar flow). This runs OUTSIDE the
-  // original user gesture, which is why it NAVIGATES — location.href needs no activation — instead
-  // of clicking a rel="ar" anchor: Safari ignores synthetic anchor clicks without a live gesture,
-  // and a USDZ navigation still opens Quick Look there (only Apple's in-AR CTA banner is lost, on
-  // this rare cold-start path). Android intent navigations without a gesture may be blocked by the
-  // browser; the busy failsafe then restores the button and the next tap launches directly.
   #maybeAutoLaunchAr() {
     if (!this.#arAutoLaunchUntil) return;
     if (Date.now() > this.#arAutoLaunchUntil) { this.#clearArBusy(); return; }
@@ -734,44 +590,22 @@ class TogenarEmbed extends HTMLElement {
     if (!ar || ar.arSupportEnabled === false) { this.#clearArBusy(); return; }
     const { isIOS, isAndroid, iosNamedBrowser, iosSafariAnchor } = this.#platform();
     const url = isIOS ? ar.iosHref : (isAndroid ? ar.androidIntent : null);
-    if (!url) return;   // keep waiting — a later re-stream may carry it (deadline still guards)
+    if (!url) return;
     this.#arAutoLaunchUntil = 0;
     if (isAndroid && ar.arCta) { try { this.#command('ar-launched', { method: 'scene-viewer' }); } catch {} }
     if (isIOS && !iosSafariAnchor && !iosNamedBrowser) this.#armInAppSafariEscape();
     try { window.location.href = url; } catch {}
   }
 
-  /**
-   * Launch native AR for the CURRENT configuration from the HOST's top-level document — iOS Quick
-   * Look (rel="ar" anchor) / Android Scene Viewer (intent) / desktop → device-adaptive launcher tab.
-   *
-   * MUST be called synchronously inside your own click/tap handler: the launch fires within that
-   * user gesture (URLs are pre-cached from the viewer's `ar-urls` stream, so there is no round-trip
-   * to consume the activation). Returns a resolved Promise with { ok, method } — the DOM action has
-   * already happened by the time it resolves. When the launch URL is still being prepared server-side
-   * (a multi-part merge or an on-demand USDZ), resolves { ok: true, method: 'preparing' } and the
-   * launch completes automatically the moment the viewer streams the fresh URL.
-   */
   enterAR() {
     const ar = this.#arLaunch || null;
     const { isIOS, isAndroid, iosNamedBrowser, iosSafariAnchor } = this.#platform();
     try {
       if (ar && ar.arSupportEnabled === false) return Promise.resolve({ ok: false, reason: 'ar-disabled' });
 
-      // `rel="ar"` is honoured ONLY by real Safari (and SFSafariViewController, which carries
-      // Safari's own UA). In every other iOS context — Chrome/Firefox/Edge/Opera AND app webviews
-      // (Slack, Telegram, Instagram…) — the anchor click below is a SILENT no-op: no error, no AR,
-      // a dead button. All of those contexts do hand a top-level USDZ navigation to the system,
-      // which opens the same Quick Look sheet once the file has downloaded — so send them straight
-      // at the file.
       if (isIOS && ar && ar.iosHref && !iosSafariAnchor) {
-        // The whole USDZ downloads before Quick Look appears — show the tap landed.
         this.#setArBusy(120000);
         if (!iosNamedBrowser) {
-          // In-app webview: Safari FIRST, inside the tap gesture. Telegram (device-verified)
-          // answers the USDZ navigation with a download prompt, and custom-scheme navigations are
-          // honoured inside a gesture but blocked outside one — so spend the gesture on the
-          // x-safari-https:// escape and keep the USDZ attempt as the 2s fallback.
           let escaped = false;
           try {
             const here = String(window.location.href || '');
@@ -791,13 +625,11 @@ class TogenarEmbed extends HTMLElement {
         return Promise.resolve({ ok: true, method: 'quicklook-navigate' });
       }
 
-      // iOS Quick Look — the rel="ar" anchor MUST be in the top-level document for AR (camera) mode.
       if (isIOS && ar && ar.iosHref) {
         this.#setArBusy();
         const a = document.createElement('a');
         a.rel = 'ar';
         a.href = ar.iosHref;
-        // Quick Look is most reliable when the anchor has a child <img> (may be empty).
         const img = document.createElement('img');
         img.decoding = 'async';
         img.alt = '';
@@ -805,9 +637,6 @@ class TogenarEmbed extends HTMLElement {
 
         const ctaLabel = (ar.arCta && typeof ar.arCta.label === 'string') ? ar.arCta.label.trim() : '';
         if (ctaLabel) {
-          // Apple posts the banner tap back to THIS anchor. Removing it on click — which is what the
-          // no-CTA path below does — throws the callback away, so with a CTA the anchor has to
-          // outlive the click and stay in the DOM for the whole AR session.
           a.style.display = 'none';
           let tapped = false;
           a.addEventListener('message', (event) => {
@@ -822,8 +651,6 @@ class TogenarEmbed extends HTMLElement {
           }, false);
           document.body.appendChild(a);
           a.click();
-          // Tapping the banner quits Quick Look, so the page regains focus and may race Apple's
-          // message. Removal is deferred well past both.
           setTimeout(() => { try { a.remove(); } catch {} }, 1800000);
           return Promise.resolve({ ok: true, method: 'quicklook' });
         }
@@ -834,22 +661,13 @@ class TogenarEmbed extends HTMLElement {
         return Promise.resolve({ ok: true, method: 'quicklook' });
       }
 
-      // Android Scene Viewer — intent navigation from the top-level document.
       if (isAndroid && ar && ar.androidIntent) {
-        // Scene Viewer's own banner cannot carry the CTA (its button is hard-labelled "Visit" and
-        // reports nothing back), so the viewer draws it on the frame AFTER AR. It keys off the tab
-        // backgrounding, which the navigation below is about to cause — so arm it first.
         if (ar.arCta) { try { this.#command('ar-launched', { method: 'scene-viewer' }); } catch {} }
         this.#setArBusy();
         try { window.location.href = ar.androidIntent; } catch {}
         return Promise.resolve({ ok: true, method: 'scene-viewer' });
       }
 
-      // A phone with NO platform URL yet: the multi-part merge / on-demand USDZ is still preparing
-      // server-side. The old fallback opened the launcher tab here — on a phone that reads as a
-      // broken button (a popup, usually blocked in webviews, instead of AR). Ask the viewer to
-      // prepare, show the button busy, and finish this tap's launch when the fresh URL streams in
-      // (`ar-urls` → #maybeAutoLaunchAr).
       if (isIOS || isAndroid) {
         this.#setArBusy(90000);
         this.#arAutoLaunchUntil = Date.now() + 90000;
@@ -857,9 +675,6 @@ class TogenarEmbed extends HTMLElement {
         return Promise.resolve({ ok: true, method: 'preparing' });
       }
 
-      // Desktop → open the device-adaptive launcher (QR-to-phone) in a new tab (still inside this
-      // gesture, so the popup is allowed). No 'noopener' feature: it forces window.open to return
-      // null, hiding whether the tab opened — opener is severed by hand instead.
       const launcher = this.#launcherUrl();
       if (launcher) {
         let opened = null;
@@ -873,14 +688,11 @@ class TogenarEmbed extends HTMLElement {
     }
   }
 
-  /** True when native AR is available for the current configuration (viewer reported launch URLs). */
   isArAvailable() {
     const ar = this.#arLaunch;
     return !!(ar && ar.hasAr && ar.arSupportEnabled !== false);
   }
 
-  // Show/hide the built-in AR button from the cached AR state + the `ar-button` attribute
-  // ("off"/"none"/"false"/"0" → host provides its own button and calls enterAR()).
   #updateArButton() {
     if (!this.#arBtn) return;
     const attr = String(this.getAttribute('ar-button') || '').trim().toLowerCase();
@@ -889,13 +701,6 @@ class TogenarEmbed extends HTMLElement {
     this.#arBtn.style.display = show ? 'inline-flex' : 'none';
   }
 
-  // Synchronous device-adaptive launcher URL (QR/scan flow) for the desktop / not-yet-ready fallback.
-  //
-  // PREFER the URL the viewer streams on `ar-urls`: it carries the shopper's CURRENT configurator
-  // selection (plus the launcher/QR theme), so the QR encodes the configuration on screen. Building it
-  // here from attributes alone cannot — it knows the project, not the selection — and doing so shipped
-  // a QR for the DEFAULT model while a configured one was in view. Keep the attribute build strictly
-  // as the pre-stream fallback (single-model embeds, or a tap before the first `ar-urls` arrives).
   #launcherUrl() {
     const streamed = this.#arLaunch && typeof this.#arLaunch.launcherUrl === 'string'
       ? this.#arLaunch.launcherUrl.trim()
@@ -916,26 +721,14 @@ class TogenarEmbed extends HTMLElement {
     }
   }
 
-  /**
-   * PNG data-URL snapshot of the currently-configured model (the summary hero image).
-   * Async: resolves { ok, url } — best-effort, ok:false when capture is unavailable.
-   */
   getSnapshot() {
     return this.#request('getSnapshot');
   }
 
-  /**
-   * Short device-adaptive share link (…/s/{code}) for the current configuration — the same link the
-   * built-in summary's Share box and QR encode. Async: resolves { ok, url } (full launcher URL fallback).
-   */
   getShareLink() {
     return this.#request('getShareLink');
   }
 
-  /**
-   * QR PNG data-URL for the desktop "scan to view in AR" flow. Defaults to the short share link;
-   * pass { text, size } to encode something else. Async: resolves { ok, url }.
-   */
   getQr(params) {
     return this.#request('getQr', params || {});
   }
