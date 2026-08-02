@@ -40,6 +40,7 @@ const buildViewerUrl = ({
   behaviouralConsent,
   enquire,
   enquireLabel,
+  reflection,
   arHost,
 }) => {
   const base = new URL(baseUrl || DEFAULT_BASE_URL);
@@ -59,6 +60,7 @@ const buildViewerUrl = ({
     url.searchParams.set('enquire', '1');
     if (enquireLabel) url.searchParams.set('enquire_label', enquireLabel);
   }
+  if (reflection) url.searchParams.set('reflection', '1');
 
   if (preview) {
     try {
@@ -101,6 +103,7 @@ class TogenarEmbed extends HTMLElement {
       'consent',
       'enquire',
       'enquire-label',
+      'reflection',
       'ar-button',
     ];
   }
@@ -253,7 +256,7 @@ class TogenarEmbed extends HTMLElement {
       try {
         if (!event) return;
         if (!this.#iframe || event.source !== this.#iframe.contentWindow) return;
-        if (this.#expectedOrigin && event.origin && event.origin !== this.#expectedOrigin) return;
+        if (!this.#expectedOrigin || event.origin !== this.#expectedOrigin) return;
         const data = event.data;
         if (!data || typeof data !== 'object') return;
 
@@ -370,6 +373,7 @@ class TogenarEmbed extends HTMLElement {
     const skipAnalytics = boolAttr(this.getAttribute('na'));
     const enquire = boolAttr(this.getAttribute('enquire'));
     const enquireLabel = pick(this.getAttribute('enquire-label'));
+    const reflection = boolAttr(this.getAttribute('reflection'));
 
     const behaviouralConsent = (() => {
       const raw = this.getAttribute('consent');
@@ -400,6 +404,7 @@ class TogenarEmbed extends HTMLElement {
       behaviouralConsent,
       enquire,
       enquireLabel,
+      reflection,
       arHost: !launcher,
     });
 

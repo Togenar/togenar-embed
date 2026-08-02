@@ -183,7 +183,7 @@ the events report:
 | --- | --- |
 | `setAvailability({ body: { walnut: false } })` | Push live stock. Out-of-stock swatches dim + become unselectable. |
 | `setPrices({ currency: 'EUR', locale: 'de-DE', items: { 'OSLO-BODY-WALNUT': 129.9 }, total: 259.8 })` | Show your prices in the summary. The viewer never computes price — **your page stays the pricing source of truth.** |
-| `getOptions()` | Enumerate every part + variant (with `select()`-ready handles + `sku`) to build your **own** option panel. |
+| `getOptions()` | Enumerate every part + variant (with `select()`-ready handles + `sku`) to build your **own** option panel. Each entry carries `inPicker` — `false` for parts a link group drives — so `filter(o => o.inPicker)` matches the published panel. |
 | `select(partKey, variantKey)` | Drive a swap from your own UI. Resolves after the model settles. |
 | `reset()` | Back to the published default. |
 | `addedToCart(detail?)` | Confirms that your cart call succeeded — call it from your own Add-to-cart handler. On **Android** this is what credits an AR-driven sale: Google allows no button inside AR, and Togenar does not render a second one over yours, so an add that lands immediately after the shopper leaves AR is attributed to that session. |
@@ -225,6 +225,12 @@ tg.addEventListener('togenar:configurator:enquire', (e) => openQuoteForm(e.detai
 
 Because the tap happens **inside** the configurator, it can be attributed — a buy button that lives
 outside the 3D player cannot be.
+
+### Presentation attributes
+
+| Attribute | Purpose |
+| --- | --- |
+| `reflection` | Studio-style ground reflection under the product. Off by default; skipped automatically on heavy or animated models and inside AR. |
 
 ---
 

@@ -37,12 +37,38 @@ export interface TogenarVariant {
   available?: boolean;
 }
 
+/** How a part relates to a link group, when it belongs to one. */
+export interface TogenarOptionLink {
+  role: 'driver' | 'driven';
+  groupId: string;
+  /** Present on the driver: the parts it sets. */
+  drivenPartIds?: string[];
+  /** Present on a driven part: the part that sets it. */
+  driverPartId?: string;
+}
+
+/** Membership of a visibility group — one member is shown at a time. */
+export interface TogenarOptionVisibility {
+  groupId: string;
+  memberPartIds: string[];
+  active: boolean;
+}
+
 export interface TogenarOption {
   partId: string;
   /** The value to pass as `select(partKey, …)`. */
   partKey: string;
+  /** The customer-facing heading the panel authored for this option. */
   label: string;
   defaultVariantId: string;
+  /**
+   * Whether the built-in picker offers this part to visitors. `false` for parts a link
+   * group drives (the driver represents them) unless the panel opted them back in.
+   * Filter on this to mirror the published panel instead of re-deriving the rule.
+   */
+  inPicker: boolean;
+  link?: TogenarOptionLink;
+  visibility?: TogenarOptionVisibility;
   variants: TogenarVariant[];
 }
 
@@ -210,6 +236,8 @@ export interface TogenarEmbedAttributes {
   na?: string | boolean;
   /** `off` / `none` / `false` / `0` hides the built-in AR button so you can call `enterAR()`. */
   'ar-button'?: string;
+  /** Mirror-style ground reflection under the product. Off by default; skipped automatically on heavy models. */
+  reflection?: string | boolean;
 }
 
 // React / JSX support: `<togenar-embed project="…" configurator />` with autocomplete.
