@@ -162,6 +162,17 @@ export declare class TogenarEmbed extends HTMLElement {
   resetCamera(): Promise<TogenarResult>;
 
   /**
+   * Report that YOUR cart call succeeded, right after the store confirms the add.
+   * Fire-and-forget, safe to call on every add, AR or not.
+   *
+   * This is what makes AR measurable on Android: Google allows no button of ours inside
+   * AR and reports nothing when the shopper leaves it, so an add landing shortly after
+   * they walk out of AR is credited to that AR session. Without this call, the sale looks
+   * like it came from nowhere.
+   */
+  addedToCart(detail?: Record<string, unknown>): void;
+
+  /**
    * Launch native AR for the current configuration from the HOST's top-level document —
    * iOS Quick Look, Android Scene Viewer, or a device-adaptive launcher tab on desktop.
    *
