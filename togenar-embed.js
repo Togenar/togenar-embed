@@ -42,6 +42,7 @@ const buildViewerUrl = ({
   enquireLabel,
   reflection,
   arHost,
+  pageUrl,
 }) => {
   const base = new URL(baseUrl || DEFAULT_BASE_URL);
   const url = launcher ? new URL('/embed/launcher.html', base) : new URL('/embed/viewer.html', base);
@@ -61,6 +62,7 @@ const buildViewerUrl = ({
     if (enquireLabel) url.searchParams.set('enquire_label', enquireLabel);
   }
   if (reflection) url.searchParams.set('reflection', '1');
+  if (pageUrl) url.searchParams.set('page', pageUrl);
 
   if (preview) {
     try {
@@ -105,6 +107,7 @@ class TogenarEmbed extends HTMLElement {
       'enquire-label',
       'reflection',
       'ar-button',
+      'page-url',
     ];
   }
 
@@ -382,6 +385,21 @@ class TogenarEmbed extends HTMLElement {
       return value === '' || value === 'analytics' || value === 'true' || value === '1' || value === 'granted';
     })();
 
+    const pageUrl = (() => {
+      const explicit = pick(this.getAttribute('page-url'));
+      const raw = explicit || (typeof window !== 'undefined' && window.location ? window.location.href : '');
+      if (!raw) return null;
+      try {
+        const u = new URL(raw, window.location.href);
+        if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+        u.hash = '';
+        const s = u.toString();
+        return s.length > 2000 ? null : s;
+      } catch {
+        return null;
+      }
+    })();
+
     if (!project) {
       this.#status.style.display = 'none';
       return;
@@ -406,6 +424,7 @@ class TogenarEmbed extends HTMLElement {
       enquireLabel,
       reflection,
       arHost: !launcher,
+      pageUrl,
     });
 
     if (this.#iframe.src !== url) {
@@ -720,6 +739,19 @@ class TogenarEmbed extends HTMLElement {
       const lang = pick(this.getAttribute('lang')) || pick(this.getAttribute('locale'));
       if (lang) u.searchParams.set('lang', lang);
       u.searchParams.set('launcherFrom', 'viewer');
+      try {
+        const explicit = pick(this.getAttribute('page-url'));
+        const raw = explicit || (typeof window !== 'undefined' && window.location ? window.location.href : '');
+        if (raw) {
+          const p = new URL(raw, window.location.href);
+          if (p.protocol === 'https:' || p.protocol === 'http:') {
+            p.hash = '';
+            const s = p.toString();
+            if (s.length <= 2000) u.searchParams.set('page', s);
+          }
+        }
+      } catch {
+      }
       return u.toString();
     } catch {
       return null;

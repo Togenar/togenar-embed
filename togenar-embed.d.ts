@@ -249,6 +249,13 @@ export interface TogenarEmbedAttributes {
   'ar-button'?: string;
   /** Mirror-style ground reflection under the product. Off by default; skipped automatically on heavy models. */
   reflection?: string | boolean;
+  /**
+   * Product-page URL handed to the viewer for AR flows: it becomes the Quick Look
+   * canonical URL, and the QR/AR hand-off returns the shopper to this page (with
+   * `togenar_ar_cart=1` after an AR add-to-cart tap). Defaults to the embedding page's
+   * own URL. Honoured only when the URL's domain is on the workspace embed allowlist.
+   */
+  'page-url'?: string;
 }
 
 // React / JSX support: `<togenar-embed project="…" configurator />` with autocomplete.

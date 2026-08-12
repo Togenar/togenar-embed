@@ -121,6 +121,33 @@ Call `enterAR()` **from your own click handler** — starting a WebXR session ma
 in-page user gesture per the browser's activation policy. AR must be enabled on the
 workspace plan; on desktop, use `getQr()` for a "scan to view in AR" code.
 
+### When AR finishes on a different device
+
+A desktop shopper scans that QR code and ends the journey on a phone that never loaded your
+site — no page of yours to receive `togenar:ar-add-to-cart`, and none to push a price for
+Apple's AR banner. The embed hands your product-page URL to the viewer so the hop keeps both:
+the desktop session's price travels with the QR link, and an AR add-to-cart tap **returns** the
+shopper to your page with the configuration and `togenar_ar_cart=1`.
+
+```js
+const q = new URLSearchParams(location.search);
+if (q.get('togenar_ar_cart') === '1') {
+  addToCart(tg.getSkus(), tg.getShareUrl());   // same handler as your button
+
+  q.delete('togenar_ar_cart');                 // a refresh must not add twice
+  history.replaceState(null, '', location.pathname + (q.toString() ? `?${q}` : '') + location.hash);
+}
+```
+
+| Attribute | Purpose |
+| --- | --- |
+| `page-url` | Product-page URL for that hand-off. Defaults to the embedding page's own URL — set it only when the embed lives somewhere else (an iframe of your own, a preview shell). |
+
+The URL's domain must be on your **workspace embed allowlist**; otherwise the hand-off stays
+off and AR behaves as before. A return address that anyone could put in a QR code would make
+the viewer an open redirect, so it has to be registered in advance —
+[domain allowlist](https://docs.togenar.com/embed/domain-allowlist/#it-also-unlocks-the-ar-hand-off).
+
 ---
 
 ## 4. Concrete: Shopify & WooCommerce
