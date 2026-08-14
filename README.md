@@ -156,6 +156,27 @@ Both platforms add to cart by their **internal variant/product ID, not by SKU.**
 real integration task is mapping the Togenar SKU → your platform's ID. That mapping is what the
 generic `/cart/add` above stands in for.
 
+### Shopify — the turnkey connector
+
+On Shopify you don't build that map by hand. Load the connector next to the embed and it
+reads your storefront's own product JSON, keys everything by SKU, pushes prices + stock,
+and wires any `data-togenar-add-to-cart` button to `/cart/add.js`:
+
+```liquid
+<script type="module" src="https://model.togenar.com/embed/togenar-shopify.js"></script>
+
+<togenar-embed project="YOUR_PROJECT_ID" configurator shopify
+  shopify-handles="{{ product.handle }}"
+  shopify-currency="{{ cart.currency.iso_code }}"></togenar-embed>
+
+<button data-togenar-add-to-cart disabled>Add to cart</button>
+```
+
+Pasteable into a **Custom Liquid** block as-is — full attribute reference in the
+[Shopify connector docs](https://docs.togenar.com/commerce/shopify/). Also importable as
+`@togenar/embed/shopify`. The manual pattern below is what the connector does under the
+hood, kept for custom setups.
+
 ### Shopify (AJAX Cart API)
 
 ```js
@@ -196,8 +217,9 @@ await fetch('/wp-json/wc/store/v1/cart/add-item', {
 
 Resolve `WC_PRODUCT_ID` from the Togenar SKU the same way (SKU → product/variation ID map).
 
-> A turnkey Shopify app / WooCommerce plugin that auto-wires this mapping is on the roadmap.
-> Until then, this ~15-line snippet is the whole integration.
+> The Shopify side of this mapping ships today as the turnkey connector above. A WooCommerce
+> plugin that auto-wires the same contract is on the roadmap — until then, this ~15-line
+> snippet is the whole WooCommerce integration.
 
 ---
 
