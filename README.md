@@ -234,6 +234,9 @@ the events report:
 | `setPrices({ currency: 'EUR', locale: 'de-DE', items: { 'OSLO-BODY-WALNUT': 129.9 }, total: 259.8 })` | Show your prices in the summary. The viewer never computes price — **your page stays the pricing source of truth.** |
 | `getOptions()` | Enumerate every part + variant (with `select()`-ready handles + `sku`) to build your **own** option panel. Each entry carries `inPicker` — `false` for parts a link group drives — so `filter(o => o.inPicker)` matches the published panel. |
 | `select(partKey, variantKey)` | Drive a swap from your own UI. Resolves after the model settles. |
+| `getGroups()` | Enumerate the product's **module slots** — visibility groups, where one member part is shown at a time (e.g. *Shelf 1* with 22 alternative modules). Each member carries a `showPart()`-ready handle. `getOptions()` reports membership but cannot change it. |
+| `showPart(partKey)` | Show one member of a module slot. The group is resolved from the member itself and membership is re-checked, so an unknown handle resolves to `{ ok: false }` and changes nothing. |
+| `focusPart(partKey)` | Apply the camera angle recorded for a part — call it when your panel changes section, not when a swatch is picked. `null` for a section that is not a part, and a part with no recorded angle, ease back to the opening framing. `moved: false` means the project does not move the camera on part change. |
 | `reset()` | Back to the published default. |
 | `addedToCart(detail?)` | Confirms that your cart call succeeded — call it from your own Add-to-cart handler. On **Android** this is what credits an AR-driven sale: Google allows no button inside AR, and Togenar does not render a second one over yours, so an add that lands immediately after the shopper leaves AR is attributed to that session. |
 | `getShareLink()` / `getQr()` / `getSnapshot()` | Short share link, "scan for AR" QR, PNG hero of the current config. |
@@ -250,7 +253,7 @@ Listen with `tg.addEventListener('togenar:<name>', e => …)`:
 | Event | When |
 | --- | --- |
 | `togenar:ready` | Viewer loaded and interactive. |
-| `togenar:configurator:selection_change` | On load + every option change. `detail = { parts, shareUrl }`. |
+| `togenar:configurator:selection_change` | On load + every option change, **including a module slot changing** (whether the shopper used the built-in picker or your own `showPart()` call). `detail = { parts, shareUrl }`, plus `activeMembers` on products that have module slots. |
 | `togenar:configurator:enquire` | Shopper tapped the summary panel's enquire button (needs the `enquire` attribute). `detail = { parts, skus, shareUrl }`. |
 | `togenar:ar-add-to-cart` | Shopper added the configured product to the cart from **inside iOS AR** (enable **AR Add to Cart** per project in WebAR settings). `detail = { surface, arMode, label, projectId }`. Wire it to your cart. Android has no in-AR button — call `addedToCart()` from your own button instead, and the add is credited to the AR session. |
 | `togenar:commerce:add_to_cart_success` / `…_fail` | Emitted by the viewer's own commerce flows. To report **your** cart call, use `addedToCart()` above. |

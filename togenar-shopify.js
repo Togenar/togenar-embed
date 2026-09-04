@@ -105,7 +105,18 @@ export const buildAvailability = (options, map) => {
   return count ? out : null;
 };
 
-export const resolveCartItems = (skus, map, shareUrl) => {
+export const packAttribution = (attribution) => {
+  const pick = (key) => String((attribution && attribution[key]) || '').trim().slice(0, 96);
+  const host = (() => {
+    const raw = String((attribution && attribution.referrer) || '').trim();
+    if (!raw) return '';
+    try { return new URL(raw).hostname.toLowerCase().slice(0, 96); } catch { return ''; }
+  })();
+  const packed = [pick('utm_source'), pick('utm_medium'), pick('utm_campaign'), host].join('|');
+  return packed === '|||' ? '' : packed;
+};
+
+export const resolveCartItems = (skus, map, shareUrl, extraProperties = null) => {
   const byVariant = new Map();
   const unmapped = [];
   for (const sku of Array.isArray(skus) ? skus : []) {
@@ -118,11 +129,35 @@ export const resolveCartItems = (skus, map, shareUrl) => {
     if (existing) existing.quantity++;
     else {
       const item = { id: entry.variantId, quantity: 1 };
-      if (shareUrl) item.properties = { _togenar: shareUrl };
+      const properties = {};
+      if (shareUrl) properties._togenar = shareUrl;
+      for (const [key, value] of Object.entries(extraProperties || {})) {
+        if (value) properties[key] = String(value);
+      }
+      if (Object.keys(properties).length) item.properties = properties;
       byVariant.set(entry.variantId, item);
     }
   }
   return { items: [...byVariant.values()], unmapped };
+};
+
+export const cartItemCount = (items) => (Array.isArray(items) ? items : [])
+  .reduce((total, item) => total + (Number(item && item.quantity) || 1), 0);
+
+export const cartValue = (items, map) => {
+  const priceByVariant = new Map();
+  for (const entry of (map && typeof map.values === 'function') ? map.values() : []) {
+    if (entry && Number.isFinite(entry.priceCents)) priceByVariant.set(entry.variantId, entry.priceCents);
+  }
+
+  let cents = 0;
+  for (const item of Array.isArray(items) ? items : []) {
+    const unit = priceByVariant.get(item && item.id);
+    if (!Number.isFinite(unit)) return null;
+    cents += unit * (Number(item && item.quantity) || 1);
+  }
+
+  return Math.round(cents) / 100;
 };
 
 export const addToCart = async (fetchImpl, root, items) => {
@@ -199,7 +234,16 @@ export const createShopifyConnector = (el, opts = {}) => {
 
   const runAdd = async () => {
     if (inFlight || destroyed) return;
-    const { items, unmapped } = resolveCartItems(currentSkus(), map, typeof el.getShareUrl === 'function' ? el.getShareUrl() : null);
+    const attributionProperties = {
+      _togenar_pid: String(el.getAttribute('project') || '').trim(),
+      _togenar_src: typeof el.getAttribution === 'function' ? packAttribution(el.getAttribution()) : '',
+    };
+    const { items, unmapped } = resolveCartItems(
+      currentSkus(),
+      map,
+      typeof el.getShareUrl === 'function' ? el.getShareUrl() : null,
+      attributionProperties,
+    );
     warnUnmapped(unmapped);
     if (!items.length) {
       dispatch('togenar:commerce:add_to_cart_fail', { reason: 'no_mapped_skus', skus: currentSkus() });
@@ -210,7 +254,14 @@ export const createShopifyConnector = (el, opts = {}) => {
     try {
       const cart = await addToCart(fetchImpl, root, items);
       dispatch('togenar:commerce:add_to_cart_success', { items, cart, skus: currentSkus() });
-      try { if (typeof el.addedToCart === 'function') el.addedToCart({ source: 'shopify', items }); } catch { }
+      try {
+        if (typeof el.addedToCart === 'function') {
+          const detail = { source: 'shopify', items, quantity: cartItemCount(items) };
+          const value = cartValue(items, map);
+          if (currency && value !== null) { detail.currency = currency; detail.value = value; }
+          el.addedToCart(detail);
+        }
+      } catch { }
       if (gotoCart && win.location) win.location.assign(`${root}cart`);
     } catch (e) {
       dispatch('togenar:commerce:add_to_cart_fail', {

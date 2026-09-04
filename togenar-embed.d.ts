@@ -27,6 +27,12 @@ export interface TogenarVariant {
   variantId: string;
   /** The value to pass to `select()` — the same handle that appears in `?part=…`. */
   handle: string;
+
+  /**
+   * Present when picking this variant makes the model open or close. `clipName` is the authored
+   * clip; drive it with `setAnimationState()`. `null` on a variant that does not move.
+   */
+  animation?: { clipName: string; mode: 'toggle' } | null;
   label: string;
   sku: string | null;
   swatch?: string | null;
@@ -54,6 +60,36 @@ export interface TogenarOptionVisibility {
   active: boolean;
 }
 
+/** One member of a visibility group — an alternative module for the same slot. */
+export interface TogenarGroupMember {
+  partId: string;
+  /** The value to pass to `showPart()`. `null` when the part has no stable handle. */
+  partKey: string | null;
+  label: string;
+  /**
+   * Product shot of this module, generated in the panel from the part's own model and served
+   * from the CDN. `null` when the panel has not generated one — render the label instead.
+   */
+  thumb: string | null;
+  isActive: boolean;
+}
+
+/**
+ * A visibility group: an exclusive choice between member parts (only one is shown at a
+ * time) — the product's module slots, e.g. "Shelf 1" with 22 alternatives.
+ */
+export interface TogenarGroup {
+  groupId: string;
+  label: string;
+  activePartId: string | null;
+  members: TogenarGroupMember[];
+}
+
+export interface TogenarGroupResult extends TogenarResult {
+  groupId?: string;
+  activePartId?: string;
+}
+
 export interface TogenarOption {
   partId: string;
   /** The value to pass as `select(partKey, …)`. */
@@ -70,6 +106,9 @@ export interface TogenarOption {
   link?: TogenarOptionLink;
   visibility?: TogenarOptionVisibility;
   variants: TogenarVariant[];
+
+  /** Present when the SELECTED variant opens/closes: where it stands right now. */
+  animationState?: { open: boolean };
 }
 
 /**
@@ -146,6 +185,31 @@ export declare class TogenarEmbed extends HTMLElement {
    */
   select(partKey: string, variantKey: string): Promise<TogenarSelectionResult>;
 
+  /**
+   * Set the open/closed state of an option that opens or closes the model (an oven door, a
+   * drawer). Separate from `select()`: the choice and its state are different things, so a host
+   * that only wants the door open does not re-pick the door.
+   *
+   * `getOptions()` reports which variant carries one (`variants[].animation`) and where the
+   * selected one currently stands (`animationState.open`). Rejects on an unknown handle; resolves
+   * `{ ok: false }` when the current variant has no open/close animation.
+   */
+  setAnimationState(partKey: string, open: boolean): Promise<{ ok: boolean; open?: boolean; error?: string }>;
+
+  /**
+   * Every visibility group and all its members, with `showPart()`-ready handles. Use it to
+   * offer the product's module slots ("Shelf 1", "Shelf 2") in your own panel — `getOptions()`
+   * reports group membership but cannot change it.
+   */
+  getGroups(): Promise<TogenarGroup[]>;
+
+  /**
+   * Show one member of a visibility group, e.g. `showPart('shelf1-two-doors')`. The group is
+   * resolved from the member itself and membership is re-checked, so an unknown handle
+   * resolves to `{ ok: false }` rather than changing anything.
+   */
+  showPart(partKey: string): Promise<TogenarGroupResult>;
+
   /** Reset the configuration to the published default. */
   reset(): Promise<TogenarSelectionResult>;
 
@@ -160,6 +224,14 @@ export declare class TogenarEmbed extends HTMLElement {
 
   /** Ease the camera back to its opening framing. */
   resetCamera(): Promise<TogenarResult>;
+
+  /**
+   * Tell the viewer which part the shopper is on, so the camera angle recorded for that part is
+   * applied. Call it on section change, not on every pick: comparing finishes of the same part must
+   * not move the camera. Pass null on a section that is not a part to ease back to the opening
+   * framing. Whether the camera moves at all is the project's setting.
+   */
+  focusPart(partKey: string | null): Promise<{ ok: boolean; moved?: boolean; partId?: string | null; error?: string }>;
 
   /**
    * Report that YOUR cart call succeeded, right after the store confirms the add.

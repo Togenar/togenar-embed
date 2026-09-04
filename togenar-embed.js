@@ -252,6 +252,7 @@ class TogenarEmbed extends HTMLElement {
     this.#iframe.addEventListener('load', () => {
       this.#status.style.display = 'none';
       this.#armFallbackFlush();
+      this.#sendHostAttribution();
       this.dispatchEvent(new CustomEvent('togenar:load', { bubbles: true }));
     });
 
@@ -442,6 +443,25 @@ class TogenarEmbed extends HTMLElement {
     }
   }
 
+  getAttribution() {
+    try {
+      const params = new URLSearchParams((window.location && window.location.search) || '');
+      const pick = (key) => String(params.get(key) || '').trim().slice(0, 96);
+      return {
+        utm_source: pick('utm_source'),
+        utm_medium: pick('utm_medium'),
+        utm_campaign: pick('utm_campaign'),
+        referrer: String((typeof document !== 'undefined' && document.referrer) || '').slice(0, 512),
+      };
+    } catch {
+      return { utm_source: '', utm_medium: '', utm_campaign: '', referrer: '' };
+    }
+  }
+
+  #sendHostAttribution() {
+    try { this.#command('host-attribution', this.getAttribution()); } catch { }
+  }
+
   #markBridged() {
     if (this.#bridged) return;
     this.#bridged = true;
@@ -451,6 +471,7 @@ class TogenarEmbed extends HTMLElement {
     }
     const queued = this.#preflight.splice(0);
     for (const msg of queued) this.#send(msg);
+    this.#sendHostAttribution();
   }
 
   #armFallbackFlush() {
@@ -520,8 +541,24 @@ class TogenarEmbed extends HTMLElement {
     return this.#request('getOptions');
   }
 
+  getGroups() {
+    return this.#request('getGroups');
+  }
+
   select(partKey, variantKey) {
     return this.#request('select', { partKey, variantKey });
+  }
+
+  /**
+   * Set the open/closed state of an option that opens or closes the model (a door, a drawer).
+   * `getOptions()` reports which variant carries one and where it currently stands.
+   */
+  setAnimationState(partKey, open) {
+    return this.#request('setAnimationState', { partKey, open: open === true });
+  }
+
+  showPart(partKey) {
+    return this.#request('showPart', { partKey });
   }
 
   reset() {
@@ -540,8 +577,23 @@ class TogenarEmbed extends HTMLElement {
     return this.#request('resetCamera');
   }
 
+  /**
+   * Tell the viewer which part the shopper is looking at, so the camera angle recorded for that
+   * part is applied. Call it when your own panel changes section, not when a swatch is picked:
+   * comparing two finishes of the same part must not move the camera. Pass null on a section that
+   * is not a part (a summary, a size) to ease back to the opening framing. Whether the camera moves
+   * at all is the project's setting; a part with no recorded angle returns to the opening framing.
+   */
+  focusPart(partKey) {
+    return this.#request('focusPart', { partKey: partKey == null ? null : String(partKey) });
+  }
+
   addedToCart(detail = {}) {
     this.#command('added-to-cart', detail || {});
+  }
+
+  purchased(detail = {}) {
+    this.#command('purchased', detail || {});
   }
 
   #platform() {
