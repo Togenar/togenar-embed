@@ -41,6 +41,7 @@ const buildViewerUrl = ({
   enquire,
   enquireLabel,
   reflection,
+  dimensionsButton,
   arHost,
   pageUrl,
 }) => {
@@ -62,6 +63,7 @@ const buildViewerUrl = ({
     if (enquireLabel) url.searchParams.set('enquire_label', enquireLabel);
   }
   if (reflection) url.searchParams.set('reflection', '1');
+  if (dimensionsButton === false) url.searchParams.set('dimsBtn', 'false');
   if (pageUrl) url.searchParams.set('page', pageUrl);
 
   if (preview) {
@@ -107,6 +109,7 @@ class TogenarEmbed extends HTMLElement {
       'enquire-label',
       'reflection',
       'ar-button',
+      'dimensions-button',
       'page-url',
     ];
   }
@@ -118,6 +121,7 @@ class TogenarEmbed extends HTMLElement {
   #onMessage;
   #expectedOrigin = null;
   #lastSelection = null;
+  #dimensions = null;
   #pending = new Map();
   #reqId = 0;
   #bridged = false;
@@ -282,6 +286,10 @@ class TogenarEmbed extends HTMLElement {
           this.#lastSelection = record.detail ?? null;
         }
 
+        if (name === 'dimensions') {
+          this.#dimensions = record.detail ?? null;
+        }
+
         if (name === 'ar-urls') {
           this.#arLaunch = record.detail ?? null;
           try { this.#updateArButton(); } catch {}
@@ -378,6 +386,12 @@ class TogenarEmbed extends HTMLElement {
     const enquire = boolAttr(this.getAttribute('enquire'));
     const enquireLabel = pick(this.getAttribute('enquire-label'));
     const reflection = boolAttr(this.getAttribute('reflection'));
+    const dimensionsButton = (() => {
+      const raw = this.getAttribute('dimensions-button');
+      if (raw === null) return true;
+      const value = String(raw).trim().toLowerCase();
+      return !(value === 'off' || value === 'none' || value === 'false' || value === '0');
+    })();
 
     const behaviouralConsent = (() => {
       const raw = this.getAttribute('consent');
@@ -424,6 +438,7 @@ class TogenarEmbed extends HTMLElement {
       enquire,
       enquireLabel,
       reflection,
+      dimensionsButton,
       arHost: !launcher,
       pageUrl,
     });
@@ -575,6 +590,19 @@ class TogenarEmbed extends HTMLElement {
 
   resetCamera() {
     return this.#request('resetCamera');
+  }
+
+  /**
+   * Show or hide the measurement overlay. Pass nothing to flip it. Use with
+   * `dimensions-button="off"` when the page carries its own measure button; the reply's `on` is
+   * the state to render on it.
+   */
+  setDimensions(on) {
+    return this.#request('setDimensions', on === undefined ? {} : { on: on === true });
+  }
+
+  toggleDimensions() {
+    return this.#request('setDimensions', {});
   }
 
   /**
@@ -762,6 +790,15 @@ class TogenarEmbed extends HTMLElement {
     } catch (e) {
       return Promise.resolve({ ok: false, error: String((e && e.message) || e) });
     }
+  }
+
+  /**
+   * Whether the project has measurements switched on — synchronous. Render your own measure button
+   * only when this is true, and re-check it on the `togenar:dimensions` event, which also carries
+   * the current `on` state.
+   */
+  isDimensionsAvailable() {
+    return this.#dimensions?.enabled === true;
   }
 
   isArAvailable() {

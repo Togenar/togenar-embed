@@ -21,6 +21,12 @@ export interface TogenarSelection {
   parts: TogenarPart[];
   /** Deep link that reproduces this exact configuration. */
   shareUrl: string | null;
+
+  /**
+   * Which part is shown in each module slot, keyed by group id. Present only on products that
+   * have visibility groups; a slot change fires `selection_change` like any other option change.
+   */
+  activeMembers?: Record<string, string>;
 }
 
 export interface TogenarVariant {
@@ -226,6 +232,16 @@ export declare class TogenarEmbed extends HTMLElement {
   resetCamera(): Promise<TogenarResult>;
 
   /**
+   * Show or hide the measurement overlay. Pass nothing to flip it. Set `dimensions-button="off"`
+   * to hide the viewer's ruler icon when the page carries its own measure button; the reply's
+   * `on` is the state to render on it.
+   */
+  setDimensions(on?: boolean): Promise<{ ok: boolean; on?: boolean; error?: string }>;
+
+  /** Flip the measurement overlay. Shorthand for `setDimensions()`. */
+  toggleDimensions(): Promise<{ ok: boolean; on?: boolean; error?: string }>;
+
+  /**
    * Tell the viewer which part the shopper is on, so the camera angle recorded for that part is
    * applied. Call it on section change, not on every pick: comparing finishes of the same part must
    * not move the camera. Pass null on a section that is not a part to ease back to the opening
@@ -319,6 +335,8 @@ export interface TogenarEmbedAttributes {
   na?: string | boolean;
   /** `off` / `none` / `false` / `0` hides the built-in AR button so you can call `enterAR()`. */
   'ar-button'?: string;
+  /** `off` / `none` / `false` / `0` hides the viewer's ruler icon so you can call `setDimensions()`. */
+  'dimensions-button'?: string;
   /** Mirror-style ground reflection under the product. Off by default; skipped automatically on heavy models. */
   reflection?: string | boolean;
   /**
