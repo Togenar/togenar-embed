@@ -139,6 +139,16 @@ export interface TogenarPrices {
   total?: number | string;
 }
 
+export interface TogenarControls {
+  /** Native AR can be launched for the current configuration. */
+  ar: boolean;
+  /** The project allows the snapshot button. */
+  photo: boolean;
+  dimensions: { enabled: boolean; on: boolean };
+  /** The viewer would be showing its reset-view button — the camera has left its opening framing. */
+  resetView: boolean;
+}
+
 export interface TogenarResult {
   ok: boolean;
 }
@@ -232,14 +242,22 @@ export declare class TogenarEmbed extends HTMLElement {
   resetCamera(): Promise<TogenarResult>;
 
   /**
-   * Show or hide the measurement overlay. Pass nothing to flip it. Set `dimensions-button="off"`
-   * to hide the viewer's ruler icon when the page carries its own measure button; the reply's
-   * `on` is the state to render on it.
+   * Show or hide the measurement overlay. Pass nothing to flip it. Set `controls="off"` when the
+   * page carries its own controls; the reply's `on` is the state to render on the button.
    */
   setDimensions(on?: boolean): Promise<{ ok: boolean; on?: boolean; error?: string }>;
 
   /** Flip the measurement overlay. Shorthand for `setDimensions()`. */
   toggleDimensions(): Promise<{ ok: boolean; on?: boolean; error?: string }>;
+
+  /**
+   * What the viewer's own control surface would be offering right now. With `controls="off"` this
+   * is how your buttons know which ones are live. Re-read on the `togenar:controls` event.
+   */
+  getControls(): TogenarControls | null;
+
+  /** Shorthand: measurements are switched on for the project. */
+  isDimensionsAvailable(): boolean;
 
   /**
    * Tell the viewer which part the shopper is on, so the camera angle recorded for that part is
@@ -335,8 +353,12 @@ export interface TogenarEmbedAttributes {
   na?: string | boolean;
   /** `off` / `none` / `false` / `0` hides the built-in AR button so you can call `enterAR()`. */
   'ar-button'?: string;
-  /** `off` / `none` / `false` / `0` hides the viewer's ruler icon so you can call `setDimensions()`. */
-  'dimensions-button'?: string;
+  /**
+   * `off` / `none` / `false` / `0` takes down the whole built-in control surface — AR, photo,
+   * measurements, reset view — so your page draws its own and drives them over the SDK. Named
+   * after `<video controls>`. Listen to `togenar:controls` for what each control should offer.
+   */
+  controls?: string;
   /** Mirror-style ground reflection under the product. Off by default; skipped automatically on heavy models. */
   reflection?: string | boolean;
   /**

@@ -1,6 +1,6 @@
 {
   "name": "@togenar/embed",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "The <togenar-embed> web component: drop a live 3D product configurator and native AR into your own storefront, and drive it from your cart.",
   "keywords": [
     "3d",
