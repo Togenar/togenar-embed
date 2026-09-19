@@ -555,6 +555,14 @@ class TogenarEmbed extends HTMLElement {
     return this.#request('getGroups');
   }
 
+  getProducts() {
+    return this.#request('getProducts');
+  }
+
+  selectProduct(productKey) {
+    return this.#request('selectProduct', { productKey: String(productKey ?? '') });
+  }
+
   select(partKey, variantKey) {
     return this.#request('select', { partKey, variantKey });
   }

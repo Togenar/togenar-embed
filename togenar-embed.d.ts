@@ -29,6 +29,23 @@ export interface TogenarSelection {
   activeMembers?: Record<string, string>;
 }
 
+/** A selection that currently blocks an option: the part and the variant it sits on. */
+export interface TogenarBlockingChoice {
+  partId: string;
+  /** The part's `select()` handle. `null` when the part has no stable handle. */
+  partKey: string | null;
+  variantId: string;
+  /** The variant's `select()` handle. */
+  handle: string | null;
+}
+
+/**
+ * Why an option cannot be picked right now. `'rule'` — the current configuration rules it out;
+ * `'stock'` — the store reported it out of stock through `setAvailability()`. A rule outranks
+ * stock when both apply.
+ */
+export type TogenarDisabledReason = 'rule' | 'stock';
+
 export interface TogenarVariant {
   variantId: string;
   /** The value to pass to `select()` — the same handle that appears in `?part=…`. */
@@ -45,8 +62,16 @@ export interface TogenarVariant {
   swatchImage?: string | null;
   modelName?: string;
   isDefault: boolean;
-  /** Present once the host has pushed stock via `setAvailability()`. */
+  /** `false` while a rule or the store's stock blocks this variant. */
   available?: boolean;
+  /** Why `available` is `false`; `null` while the variant can be picked. */
+  disabledReason?: TogenarDisabledReason | null;
+  /**
+   * The selections a rule blocks this variant on, e.g. *Body: Oak* — enough to tell the shopper
+   * what to change. Empty for stock, and for a variant that is ruled out only because picking it
+   * would leave no valid configuration.
+   */
+  blockedBy?: TogenarBlockingChoice[];
 }
 
 /** How a part relates to a link group, when it belongs to one. */
@@ -78,6 +103,12 @@ export interface TogenarGroupMember {
    */
   thumb: string | null;
   isActive: boolean;
+  /** `false` while a rule blocks this module. */
+  available?: boolean;
+  /** `'rule'` while blocked, otherwise `null`. */
+  disabledReason?: TogenarDisabledReason | null;
+  /** The selections that block this module. */
+  blockedBy?: TogenarBlockingChoice[];
 }
 
 /**
@@ -94,6 +125,10 @@ export interface TogenarGroup {
 export interface TogenarGroupResult extends TogenarResult {
   groupId?: string;
   activePartId?: string;
+  /** `'blocked'` when a rule rules the module out; other values name an unknown handle. */
+  error?: string;
+  reason?: TogenarDisabledReason;
+  blockedBy?: TogenarBlockingChoice[];
 }
 
 export interface TogenarOption {
@@ -153,8 +188,36 @@ export interface TogenarResult {
   ok: boolean;
 }
 
+export interface TogenarProduct {
+  productId: string;
+  /** The value to pass to `selectProduct()` — the same key that appears in `?product=…`. */
+  key: string;
+  label: string;
+  /** The product on screen now. */
+  active: boolean;
+}
+
+export interface TogenarProductResult extends TogenarResult {
+  /** The key of the product now on screen. */
+  product?: string | null;
+  selection?: TogenarPart[];
+  error?: string;
+}
+
+export interface TogenarProductChange {
+  product: string | null;
+  productId: string;
+  label: string;
+}
+
 export interface TogenarSelectionResult extends TogenarResult {
   selection: TogenarSelection;
+  /** `'blocked'` when the option cannot be picked right now; the selection is unchanged. */
+  error?: string;
+  /** Present with `error: 'blocked'`. */
+  reason?: TogenarDisabledReason;
+  /** Present with `error: 'blocked'`: the selections to change first. */
+  blockedBy?: TogenarBlockingChoice[];
 }
 
 export interface TogenarAppliedResult extends TogenarResult {
@@ -197,6 +260,9 @@ export declare class TogenarEmbed extends HTMLElement {
   /**
    * Drive a selection from the store's own UI, e.g. `select('body', 'walnut')`.
    * Resolves AFTER the model swap settles, so you can update the cart on completion.
+   * An option a rule or the store's stock blocks resolves
+   * `{ ok: false, error: 'blocked', reason, blockedBy, selection }` and changes nothing —
+   * the same options `getOptions()` reports with `available: false`.
    * Rejects on an unknown handle or timeout.
    */
   select(partKey: string, variantKey: string): Promise<TogenarSelectionResult>;
@@ -220,9 +286,24 @@ export declare class TogenarEmbed extends HTMLElement {
   getGroups(): Promise<TogenarGroup[]>;
 
   /**
+   * The products a configurator offers (a two-seater and a one-seater of the same sofa), with
+   * `selectProduct()`-ready keys and which one is on screen. Empty when the project has none.
+   */
+  getProducts(): Promise<TogenarProduct[]>;
+
+  /**
+   * Switch the product, e.g. `selectProduct('one-seater')`. Resolves after the new product has
+   * loaded; matching choices carry over and `getOptions()` then lists the new product's parts.
+   * `togenar:configurator:product_change` and `togenar:configurator:selection_change` fire. An
+   * unknown key resolves `{ ok: false }` and changes nothing.
+   */
+  selectProduct(productKey: string): Promise<TogenarProductResult>;
+
+  /**
    * Show one member of a visibility group, e.g. `showPart('shelf1-two-doors')`. The group is
    * resolved from the member itself and membership is re-checked, so an unknown handle
-   * resolves to `{ ok: false }` rather than changing anything.
+   * resolves to `{ ok: false }` rather than changing anything. A module a rule blocks resolves
+   * `{ ok: false, error: 'blocked', reason: 'rule', blockedBy }`.
    */
   showPart(partKey: string): Promise<TogenarGroupResult>;
 
@@ -310,6 +391,7 @@ export interface TogenarEventMap {
   'togenar:ready': CustomEvent<Record<string, unknown>>;
   'togenar:error': CustomEvent<{ message?: string; [key: string]: unknown }>;
   'togenar:configurator:selection_change': CustomEvent<TogenarSelection>;
+  'togenar:configurator:product_change': CustomEvent<TogenarProductChange>;
   'togenar:commerce:add_to_cart_success': CustomEvent<Record<string, unknown>>;
 }
 
