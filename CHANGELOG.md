@@ -3,6 +3,26 @@
 Every release of `@togenar/embed`. The release workflow reads the section for the version being
 published and refuses to tag without one, so a version that is not described here cannot ship.
 
+## 1.9.0
+
+- **Your own AR button can show the launch is under way.** `togenar:ar-busy` fires with
+  `{ busy: true }` on an `enterAR()` tap and `{ busy: false }` once the shopper is back from AR or
+  the launch ended without opening it; `isArBusy()` answers the same synchronously. On a slow
+  connection the AR file takes a while to arrive, and a page that turns the embed's button off
+  (`ar-button="off"`, `controls="off"`) had no way to tell the shopper the tap was taken.
+
+## 1.8.0
+
+- **Configurator analytics are on for every embed.** Option picks and enquiries are counted the way
+  views and AR launches always were; the dashboard's configurator funnel and most-picked options no
+  longer wait for a `consent` attribute. `consent` is removed and ignored where it is still written.
+  `na` remains the switch that turns every analytics event off for an embed.
+- **Picks made through `select()` count.** A pick your own panel applies through the SDK is reported
+  as an option pick exactly like a tap in the built-in panel. Programmatic restores at load
+  (`init`, product switches) are not picks and stay out of the numbers.
+- Both changes are served by the viewer and the API, so they reach every embed as soon as it loads
+  the current viewer; this release removes the attribute from the types and the documentation.
+
 ## 1.7.0
 
 - **Why an option is blocked.** `getOptions()` variants and `getGroups()` members now carry

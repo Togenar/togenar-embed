@@ -37,7 +37,6 @@ const buildViewerUrl = ({
   height,
   sizeHints,
   skipAnalytics,
-  behaviouralConsent,
   enquire,
   enquireLabel,
   reflection,
@@ -57,7 +56,6 @@ const buildViewerUrl = ({
   if (arHost && !launcher) url.searchParams.set('arhost', '1');
   if (!launcher) url.searchParams.set('embed', '1');
   if (skipAnalytics) url.searchParams.set('na', '1');
-  if (behaviouralConsent) url.searchParams.set('consent', '1');
   if (enquire) {
     url.searchParams.set('enquire', '1');
     if (enquireLabel) url.searchParams.set('enquire_label', enquireLabel);
@@ -83,6 +81,19 @@ const buildViewerUrl = ({
   return url.toString();
 };
 
+const PREVIEW_TOKEN_KEYS = new Set(['pvexp', 'pvsig', 'pvu', 'source', 'iaexp', 'iasig']);
+
+const splitPreview = (qs) => {
+  const token = new Map();
+  const rest = new URLSearchParams();
+  let params;
+  try { params = new URLSearchParams(String(qs || '')); } catch { return { token, rest: '' }; }
+  for (const [key, value] of params) {
+    if (PREVIEW_TOKEN_KEYS.has(key)) token.set(key, value); else rest.append(key, value);
+  }
+  return { token, rest: rest.toString() };
+};
+
 class TogenarEmbed extends HTMLElement {
   static get observedAttributes() {
     return [
@@ -104,7 +115,6 @@ class TogenarEmbed extends HTMLElement {
       'height',
       'size-hints',
       'na',
-      'consent',
       'enquire',
       'enquire-label',
       'reflection',
@@ -130,7 +140,12 @@ class TogenarEmbed extends HTMLElement {
   #arLaunch = null;
   #arBtn = null;
   #arBusyCleanup = null;
+  #arBusy = false;
   #arAutoLaunchUntil = 0;
+  #frameLoaded = false;
+  #framePreview = null;
+  #pendingPreview = null;
+  #previewSent = null;
 
   constructor() {
     super();
@@ -254,9 +269,11 @@ class TogenarEmbed extends HTMLElement {
     this.#shadow.appendChild(this.#root);
 
     this.#iframe.addEventListener('load', () => {
+      this.#frameLoaded = true;
       this.#status.style.display = 'none';
       this.#armFallbackFlush();
       this.#sendHostAttribution();
+      this.#flushPreview();
       this.dispatchEvent(new CustomEvent('togenar:load', { bubbles: true }));
     });
 
@@ -379,7 +396,8 @@ class TogenarEmbed extends HTMLElement {
     const configurator = boolAttr(this.getAttribute('configurator'));
     const pickerAttr = (pick(this.getAttribute('picker')) || '').toLowerCase();
     const headless = mode === 'headless' || pickerAttr === 'off' || pickerAttr === 'none' || pickerAttr === 'false';
-    const preview = pick(this.getAttribute('preview'));
+    const preview = pick(this.getAttribute('preview')) || null;
+    const previewRenewal = this.#isPreviewRenewal(preview);
 
     const sizeHints = boolAttr(this.getAttribute('size-hints'));
     const skipAnalytics = boolAttr(this.getAttribute('na'));
@@ -387,13 +405,6 @@ class TogenarEmbed extends HTMLElement {
     const enquireLabel = pick(this.getAttribute('enquire-label'));
     const reflection = boolAttr(this.getAttribute('reflection'));
     const controls = !this.#controlsOff();
-
-    const behaviouralConsent = (() => {
-      const raw = this.getAttribute('consent');
-      if (raw === null) return false;
-      const value = String(raw).trim().toLowerCase();
-      return value === '' || value === 'analytics' || value === 'true' || value === '1' || value === 'granted';
-    })();
 
     const pageUrl = (() => {
       const explicit = pick(this.getAttribute('page-url'));
@@ -424,12 +435,11 @@ class TogenarEmbed extends HTMLElement {
       configurator,
       headless,
       launcher,
-      preview,
+      preview: previewRenewal ? this.#framePreview : preview,
       width: this.clientWidth || null,
       height: this.clientHeight || null,
       sizeHints,
       skipAnalytics,
-      behaviouralConsent,
       enquire,
       enquireLabel,
       reflection,
@@ -448,9 +458,33 @@ class TogenarEmbed extends HTMLElement {
       try { this.#clearArBusy(); } catch {}
       try { this.#updateArButton(); } catch {}
 
+      this.#frameLoaded = false;
+      this.#framePreview = preview;
+      this.#pendingPreview = null;
+      this.#previewSent = null;
       this.#iframe.src = url;
       try { this.#expectedOrigin = new URL(url).origin; } catch { this.#expectedOrigin = null; }
+    } else if (previewRenewal && this.#previewSent !== preview && this.#pendingPreview !== preview) {
+      this.#pendingPreview = preview;
+      this.#flushPreview();
     }
+  }
+
+  #isPreviewRenewal(preview) {
+    if (!this.#framePreview || !preview || preview === this.#framePreview) return false;
+    const next = splitPreview(preview);
+    const live = splitPreview(this.#framePreview);
+    return next.rest === live.rest && next.token.size > 0;
+  }
+
+  #flushPreview() {
+    const preview = this.#pendingPreview;
+    if (!preview || !this.#frameLoaded) return;
+    this.#pendingPreview = null;
+    this.#previewSent = preview;
+    const args = {};
+    for (const [key, value] of splitPreview(preview).token) args[key] = value;
+    this.#command('preview-token', args);
   }
 
   getAttribution() {
@@ -473,6 +507,7 @@ class TogenarEmbed extends HTMLElement {
   }
 
   #markBridged() {
+    this.#flushPreview();
     if (this.#bridged) return;
     this.#bridged = true;
     if (this.#fallbackTimer) { clearTimeout(this.#fallbackTimer); this.#fallbackTimer = null; }
@@ -661,11 +696,12 @@ class TogenarEmbed extends HTMLElement {
   }
 
   #setArBusy(failsafeMs = 45000) {
-    this.#clearArBusy();
+    this.#resetArBusy();
     const btn = this.#arBtn;
-    if (!btn) return;
-    btn.classList.add('busy');
-    btn.disabled = true;
+    if (btn) {
+      btn.classList.add('busy');
+      btn.disabled = true;
+    }
     let wasHidden = false;
     const onVis = () => {
       try {
@@ -678,15 +714,27 @@ class TogenarEmbed extends HTMLElement {
     this.#arBusyCleanup = () => {
       try { clearTimeout(timer); } catch {}
       try { document.removeEventListener('visibilitychange', onVis); } catch {}
-      try { btn.classList.remove('busy'); btn.disabled = false; } catch {}
+      if (btn) { try { btn.classList.remove('busy'); btn.disabled = false; } catch {} }
     };
+    this.#announceArBusy(true);
   }
 
   #clearArBusy() {
+    this.#resetArBusy();
+    this.#announceArBusy(false);
+  }
+
+  #resetArBusy() {
     this.#arAutoLaunchUntil = 0;
     const fn = this.#arBusyCleanup;
     this.#arBusyCleanup = null;
     if (fn) { try { fn(); } catch {} }
+  }
+
+  #announceArBusy(busy) {
+    if (this.#arBusy === busy) return;
+    this.#arBusy = busy;
+    this.dispatchEvent(new CustomEvent('togenar:ar-busy', { bubbles: true, detail: { busy } }));
   }
 
   #maybeAutoLaunchAr() {
@@ -812,6 +860,10 @@ class TogenarEmbed extends HTMLElement {
   isArAvailable() {
     const ar = this.#arLaunch;
     return !!(ar && ar.hasAr && ar.arSupportEnabled !== false);
+  }
+
+  isArBusy() {
+    return this.#arBusy;
   }
 
   // `controls="off"` hands the whole surface to the page — our own AR button included, or the one

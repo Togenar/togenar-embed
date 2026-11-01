@@ -112,14 +112,22 @@ always gate your button on the event as shown above.
 ## 3. View in their room (AR)
 
 ```js
-document.getElementById('view-in-ar').addEventListener('click', () => {
+const arBtn = document.getElementById('view-in-ar');
+arBtn.addEventListener('click', () => {
   tg.enterAR();   // iOS Quick Look / Android Scene Viewer / WebXR
+});
+tg.addEventListener('togenar:ar-busy', (e) => {
+  arBtn.setAttribute('aria-busy', String(e.detail.busy));
 });
 ```
 
 Call `enterAR()` **from your own click handler** — starting a WebXR session may require an
 in-page user gesture per the browser's activation policy. AR must be enabled on the
 workspace plan; on desktop, use `getQr()` for a "scan to view in AR" code.
+
+On a slow connection the AR file takes a while to arrive. `togenar:ar-busy` fires with
+`busy: true` on the tap and `busy: false` once the shopper is back from AR or the launch ended
+without it, so your button can show it is working; `isArBusy()` answers the same synchronously.
 
 ### When AR finishes on a different device
 
@@ -236,9 +244,9 @@ the events report:
 | `select(partKey, variantKey)` | Drive a swap from your own UI. Resolves after the model settles. An option with its own recorded camera angle eases the camera there; one sharing its part's angle leaves it still. An option that cannot be picked right now resolves `{ ok: false, error: 'blocked', reason, blockedBy, selection }` and changes nothing. |
 | `setAnimationState(partKey, open)` | Open or close an option that moves (an oven door, a drawer). Separate from `select()` — the choice and its state are two different things. Idempotent; `getOptions()` reports which variants carry one (`variants[].animation`) and where the selected one stands (`animationState.open`). |
 | `getGroups()` | Enumerate the product's **module slots** — visibility groups, where one member part is shown at a time (e.g. *Shelf 1* with 22 alternative modules). Each member carries a `showPart()`-ready handle, plus `available` / `disabledReason` / `blockedBy` while a rule blocks that module. `getOptions()` reports membership but cannot change it. |
-| `showPart(partKey)` | Show one member of a module slot. The group is resolved from the member itself and membership is re-checked, so an unknown handle resolves to `{ ok: false }` and changes nothing; a module a rule blocks resolves `{ ok: false, error: 'blocked', reason: 'rule', blockedBy }`. |
+| `showPart(partKey)` | Show one member of a module slot. The group is resolved from the member itself and membership is re-checked, so an unknown handle resolves to `{ ok: false }` and changes nothing; a module a rule blocks resolves `{ ok: false, error: 'blocked', reason: 'rule', blockedBy }`. A module with its own recorded camera angle eases the camera there; one sharing the angle already on screen leaves it still. |
 | `getProducts()` | The products a configurator offers (a two-seater and a one-seater of the same sofa) — `[{ productId, key, label, active }]`, `key` being what `?product=` carries. Empty when the project has none. |
-| `selectProduct(productKey)` | Switch the product from your own UI, e.g. `selectProduct('one-seater')` — the same switch as the built-in panel's product header. Resolves after the new product has loaded; matching choices carry over and `getOptions()` then lists its parts. An unknown key resolves `{ ok: false }` and changes nothing. |
+| `selectProduct(productKey)` | Switch the product from your own UI, e.g. `selectProduct('one-seater')` — the same switch as the built-in panel's product header. Resolves after the new product has loaded; matching choices carry over and `getOptions()` then lists its parts. An unknown key resolves `{ ok: false }` and changes nothing. When calls overlap, the last one wins and the earlier ones resolve `{ ok: false }`. A product that fails to load also resolves `{ ok: false }` and the current product stays on screen. |
 | `focusPart(partKey)` | Apply the camera angle recorded for a part — call it when your panel changes section, not when a swatch is picked. `null` for a section that is not a part, and a part with no recorded angle, ease back to the opening framing. `moved: false` means the project does not move the camera on part change. |
 | `setDimensions(on?)` | Show or hide the product's measurement overlay; omit the argument to flip it, and render the reply's `on` on your button. Measurements have to be on for the project. |
 | `getControls()` | What the viewer's own controls would be offering right now — `{ ar, photo, dimensions: { enabled, on }, resetView }`. With `controls="off"` this is how your buttons know which ones are live; the `togenar:controls` event fires on every change. |
@@ -262,6 +270,7 @@ Listen with `tg.addEventListener('togenar:<name>', e => …)`:
 | `togenar:configurator:selection_change` | On load + every option change, **including a module slot changing** (whether the shopper used the built-in picker or your own `showPart()` call). `detail = { parts, shareUrl }`, plus `activeMembers` on products that have module slots. |
 | `togenar:configurator:product_change` | The product changed — from the built-in panel's product header or your `selectProduct()` call. `detail = { product, productId, label }`. A `selection_change` follows with the new product's parts; redraw your panel from that. |
 | `togenar:configurator:enquire` | Shopper tapped the summary panel's enquire button (needs the `enquire` attribute). `detail = { parts, skus, shareUrl }`. |
+| `togenar:ar-busy` | `detail = { busy }`. `true` from an `enterAR()` tap until the shopper is back from AR or the launch ended without it. Render your own AR button busy from it. |
 | `togenar:ar-add-to-cart` | Shopper added the configured product to the cart from **inside iOS AR** (enable **AR Add to Cart** per project in WebAR settings). `detail = { surface, arMode, label, projectId }`. Wire it to your cart. Android has no in-AR button — call `addedToCart()` from your own button instead, and the add is credited to the AR session. |
 | `togenar:commerce:add_to_cart_success` / `…_fail` | Emitted by the viewer's own commerce flows. To report **your** cart call, use `addedToCart()` above. |
 | `togenar:error` | Load/config failure. |
@@ -272,10 +281,9 @@ Listen with `tg.addEventListener('togenar:<name>', e => …)`:
 | --- | --- |
 | `enquire` | Show the summary panel's enquire button. Off by default — a button with no listener is a dead end. |
 | `enquire-label` | Rename it ("Request a quote", "Add to cart", …). |
-| `consent="analytics"` | Opt in to configurator funnel analytics (option picks, enquiries). Off by default; **you are the data controller** for it. |
 
 ```html
-<togenar-embed project="…" configurator enquire enquire-label="Request a quote" consent="analytics"></togenar-embed>
+<togenar-embed project="…" configurator enquire enquire-label="Request a quote"></togenar-embed>
 ```
 
 ```js

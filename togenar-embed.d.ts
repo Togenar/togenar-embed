@@ -295,7 +295,9 @@ export declare class TogenarEmbed extends HTMLElement {
    * Switch the product, e.g. `selectProduct('one-seater')`. Resolves after the new product has
    * loaded; matching choices carry over and `getOptions()` then lists the new product's parts.
    * `togenar:configurator:product_change` and `togenar:configurator:selection_change` fire. An
-   * unknown key resolves `{ ok: false }` and changes nothing.
+   * unknown key resolves `{ ok: false }` and changes nothing. When calls overlap, the last one
+   * wins and the earlier ones resolve `{ ok: false }`. A product that fails to load also resolves
+   * `{ ok: false }` and the current product stays on screen.
    */
   selectProduct(productKey: string): Promise<TogenarProductResult>;
 
@@ -375,6 +377,14 @@ export declare class TogenarEmbed extends HTMLElement {
   /** True when native AR is available for the current configuration. */
   isArAvailable(): boolean;
 
+  /**
+   * True from an `enterAR()` tap until the launch is over: the shopper is back from AR, the
+   * viewer gave up preparing the AR file, or the wait lapsed. On a slow connection the file
+   * can take a while to arrive, so render your own AR button busy from this, and from the
+   * `togenar:ar-busy` event, which fires on every change.
+   */
+  isArBusy(): boolean;
+
   /** PNG data-URL snapshot of the currently-configured model. */
   getSnapshot(): Promise<TogenarUrlResult>;
 
@@ -393,6 +403,7 @@ export interface TogenarEventMap {
   'togenar:configurator:selection_change': CustomEvent<TogenarSelection>;
   'togenar:configurator:product_change': CustomEvent<TogenarProductChange>;
   'togenar:commerce:add_to_cart_success': CustomEvent<Record<string, unknown>>;
+  'togenar:ar-busy': CustomEvent<{ busy: boolean }>;
 }
 
 declare global {
