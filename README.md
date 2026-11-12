@@ -249,11 +249,13 @@ the events report:
 | `selectProduct(productKey)` | Switch the product from your own UI, e.g. `selectProduct('one-seater')` — the same switch as the built-in panel's product header. Resolves after the new product has loaded; matching choices carry over and `getOptions()` then lists its parts. An unknown key resolves `{ ok: false }` and changes nothing. When calls overlap, the last one wins and the earlier ones resolve `{ ok: false }`. A product that fails to load also resolves `{ ok: false }` and the current product stays on screen. |
 | `focusPart(partKey)` | Apply the camera angle recorded for a part — call it when your panel changes section, not when a swatch is picked. `null` for a section that is not a part, and a part with no recorded angle, ease back to the opening framing. `moved: false` means the project does not move the camera on part change. |
 | `setDimensions(on?)` | Show or hide the product's measurement overlay; omit the argument to flip it, and render the reply's `on` on your button. Measurements have to be on for the project. |
-| `getControls()` | What the viewer's own controls would be offering right now — `{ ar, photo, dimensions: { enabled, on }, resetView }`. With `controls="off"` this is how your buttons know which ones are live; the `togenar:controls` event fires on every change. |
+| `setAnnotations(on?)` | Show or hide the product's annotation markers. Omit the argument to flip them, and render the reply's `on` on your button. Annotations have to be on for the project. |
+| `getControls()` | What the viewer's own controls would be offering right now — `{ ar, photo, dimensions: { enabled, on }, annotations: { enabled, on }, resetView }`. With `controls="off"` this is how your buttons know which ones are live; the `togenar:controls` event fires on every change. |
 | `resetCamera()` | Ease the camera back to the opening framing. Show your own button while `getControls().resetView` is true — that is when the viewer would have shown its own. |
 | `reset()` | Back to the published default. |
 | `addedToCart(detail?)` | Confirms that your cart call succeeded — call it from your own Add-to-cart handler. On **Android** this is what credits an AR-driven sale: Google allows no button inside AR, and Togenar does not render a second one over yours, so an add that lands immediately after the shopper leaves AR is attributed to that session. |
-| `getShareLink()` / `getQr()` / `getSnapshot()` | Short share link, "scan for AR" QR, PNG hero of the current config. |
+| `getShareLink()` / `getQr()` | Short share link and the "scan for AR" QR of the current config. |
+| `getSnapshot(options?)` | PNG of the current config. Default: the fitted product hero, 768 × 768. `{ framing: 'view' }`: what the shopper sees through the current camera, the image your photo button should save. `width` / `height` set the size (long side up to 2048). |
 
 Headless mode (`picker="off"`) hides the built-in panel so your `getOptions()` + `select()`
 UI is the only chrome.

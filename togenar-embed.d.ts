@@ -174,12 +174,31 @@ export interface TogenarPrices {
   total?: number | string;
 }
 
+/** What `getSnapshot()` frames, and at what size. */
+export interface TogenarSnapshotOptions {
+  /**
+   * `'product'` (default): the whole product fitted in the frame, seen from the shopper's side.
+   * `'view'`: exactly what the shopper sees through the current camera — the photo button's image.
+   */
+  framing?: 'product' | 'view';
+  /**
+   * Output size in pixels. Give one side to keep the aspect. The long side is capped at 2048.
+   * Defaults: 768 × 768 for `'product'`, the canvas in device pixels for `'view'`.
+   */
+  width?: number;
+  height?: number;
+}
 export interface TogenarControls {
   /** Native AR can be launched for the current configuration. */
   ar: boolean;
   /** The project allows the snapshot button. */
   photo: boolean;
   dimensions: { enabled: boolean; on: boolean };
+  /**
+   * `enabled`: the project shows annotations and the current configuration has at least one.
+   * `on`: they are on screen now. Flip them with `setAnnotations()`.
+   */
+  annotations: { enabled: boolean; on: boolean };
   /** The viewer would be showing its reset-view button — the camera has left its opening framing. */
   resetView: boolean;
 }
@@ -334,6 +353,16 @@ export declare class TogenarEmbed extends HTMLElement {
   toggleDimensions(): Promise<{ ok: boolean; on?: boolean; error?: string }>;
 
   /**
+   * Show or hide the product's annotation markers. Pass nothing to flip them. The project's
+   * annotations switch is the starting state. An open popup closes with the markers. The reply's
+   * `on` is the state to render on your button.
+   */
+  setAnnotations(on?: boolean): Promise<{ ok: boolean; on?: boolean; error?: string }>;
+
+  /** Flip the annotation markers. Shorthand for `setAnnotations()`. */
+  toggleAnnotations(): Promise<{ ok: boolean; on?: boolean; error?: string }>;
+
+  /**
    * What the viewer's own control surface would be offering right now. With `controls="off"` this
    * is how your buttons know which ones are live. Re-read on the `togenar:controls` event.
    */
@@ -385,8 +414,11 @@ export declare class TogenarEmbed extends HTMLElement {
    */
   isArBusy(): boolean;
 
-  /** PNG data-URL snapshot of the currently-configured model. */
-  getSnapshot(): Promise<TogenarUrlResult>;
+  /**
+   * PNG data-URL of the current configuration, rendered through the canvas's own tone mapping and
+   * antialiasing. Without options it is the summary hero: the whole product, fitted, 768 × 768.
+   */
+  getSnapshot(options?: TogenarSnapshotOptions): Promise<TogenarUrlResult>;
 
   /** Short device-adaptive share link (`…/s/{code}`) for the current configuration. */
   getShareLink(): Promise<TogenarUrlResult>;

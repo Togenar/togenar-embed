@@ -3,6 +3,22 @@
 Every release of `@togenar/embed`. The release workflow reads the section for the version being
 published and refuses to tag without one, so a version that is not described here cannot ship.
 
+## 1.10.0
+
+- **Your own annotations button.** `setAnnotations(on?)` / `toggleAnnotations()` show or hide the
+  product's annotation markers, and `getControls()` / `togenar:controls` carry
+  `annotations: { enabled, on }` so the button knows when to appear and whether it is pressed.
+  `enabled` needs the project's annotations switch on and at least one annotation on the current
+  configuration. The switch stays the starting state.
+
+- **`getSnapshot({ framing: 'view' })` is the photo your shopper sees.** The current camera, at the
+  canvas size or the `width` / `height` you pass (long side up to 2048). Use it behind your own photo
+  button with `controls="off"`: it is the same image the viewer's built-in button saves.
+- **Snapshots carry the canvas's colour and antialiasing.** The default hero (`framing: 'product'`,
+  768 × 768, now also sizeable) was rendered off-screen without tone mapping, sRGB output or
+  antialiasing, so it came out darker and jagged. It now renders through the canvas like the
+  viewer's frame. Served by the viewer, so it reaches every embed on its next load.
+
 ## 1.9.0
 
 - **Your own AR button can show the launch is under way.** `togenar:ar-busy` fires with

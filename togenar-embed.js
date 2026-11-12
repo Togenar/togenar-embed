@@ -642,6 +642,14 @@ class TogenarEmbed extends HTMLElement {
     return this.#request('setDimensions', {});
   }
 
+  setAnnotations(on) {
+    return this.#request('setAnnotations', on === undefined ? {} : { on: on === true });
+  }
+
+  toggleAnnotations() {
+    return this.#request('setAnnotations', {});
+  }
+
   /**
    * Tell the viewer which part the shopper is looking at, so the camera angle recorded for that
    * part is applied. Call it when your own panel changes section, not when a swatch is picked:
@@ -845,7 +853,7 @@ class TogenarEmbed extends HTMLElement {
   /**
    * What the viewer's own control surface would be offering right now — synchronous. With
    * `controls="off"` the page draws every control itself, and this is how it knows which ones are
-   * live: `{ ar, photo, dimensions: { enabled, on }, resetView }`. Re-read it on
+   * live: `{ ar, photo, dimensions: { enabled, on }, annotations: { enabled, on }, resetView }`. Re-read it on
    * `togenar:controls`, which fires whenever any of it changes.
    */
   getControls() {
@@ -914,8 +922,15 @@ class TogenarEmbed extends HTMLElement {
     }
   }
 
-  getSnapshot() {
-    return this.#request('getSnapshot');
+  getSnapshot(options) {
+    const o = options && typeof options === 'object' ? options : {};
+    const params = {};
+    if (o.framing === 'view' || o.framing === 'product') params.framing = o.framing;
+    for (const key of ['width', 'height']) {
+      const n = Number(o[key]);
+      if (Number.isFinite(n) && n > 0) params[key] = Math.round(n);
+    }
+    return this.#request('getSnapshot', params);
   }
 
   getShareLink() {
